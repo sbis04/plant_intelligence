@@ -126,6 +126,9 @@ def main():
     api.register(ui, ctx)
 
     ctx.store.log("SYSTEM", "Plant Intelligence hub started")
+    stale = ctx.store.close_stale_open_rows()
+    if stale:
+        ctx.store.log("SYSTEM", f"Closed {stale} watering record(s) left open by a restart")
     ctx.hardware.set_failsafe_hours(ctx.config.failsafe_silence_h)
     located = ctx.try_autolocate()
     ctx.recompute_plan()

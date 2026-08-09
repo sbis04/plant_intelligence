@@ -10,7 +10,7 @@ not a redesign — see cloud.py.
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from config import CONFIG_DIR, DB_PATH
@@ -114,6 +114,37 @@ class Store:
              "manual_override": bool(r[4]), "reason": r[5]}
             for r in rows
         ]
+
+    def close_stale_open_rows(self, max_age_min: int = 15):
+        """Reconcile rows left open by a restart.
+
+        The MCU hard-caps a watering at 10 minutes, so an open row older
+        than max_age_min cannot still be running — its end event was lost
+        while this process was down. Close it at start + cap rather than
+        leaving a forever-"running" entry.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, water_started_at FROM water_history"
+                " WHERE water_ended_at IS NULL"
+            ).fetchall()
+            closed = 0
+            for row_id, started in rows:
+                try:
+                    started_dt = datetime.fromisoformat(started)
+                except ValueError:
+                    continue
+                age_min = (datetime.now(timezone.utc) - started_dt).total_seconds() / 60
+                if age_min >= max_age_min:
+                    self._db.execute(
+                        "UPDATE water_history SET water_ended_at = ?,"
+                        " reason = reason || ' [end lost across restart]'"
+                        " WHERE id = ?",
+                        ((started_dt + timedelta(minutes=10)).isoformat(), row_id),
+                    )
+                    closed += 1
+            self._db.commit()
+        return closed
 
     def last_watering_end(self) -> Optional[datetime]:
         with self._lock:

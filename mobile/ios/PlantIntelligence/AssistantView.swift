@@ -53,22 +53,51 @@ struct AssistantOverlay: View {
 
             controls
         }
+        .task { await app.resumeThreads() }   // auto-open the last conversation
     }
 
     // MARK: pieces
 
     private var controls: some View {
         HStack {
-            Spacer()
-            Button {
-                Task { await app.resetConversation() }
+            // Conversation history: switch, resume, or delete threads.
+            Menu {
+                ForEach(app.threads) { thread in
+                    Button {
+                        Task { await app.openThread(thread.id) }
+                    } label: {
+                        if thread.id == app.currentThreadId {
+                            Label(thread.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(thread.displayTitle)
+                        }
+                    }
+                }
+                if app.currentThreadId != 0 {
+                    Divider()
+                    Button(role: .destructive) {
+                        Task { await app.deleteCurrentThread() }
+                    } label: {
+                        Label("Delete this conversation", systemImage: "trash")
+                    }
+                }
             } label: {
-                Image(systemName: "arrow.counterclockwise")
+                Image(systemName: "clock.arrow.circlepath")
                     .font(.body.weight(.semibold))
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.glass)
-            .disabled(app.messages.isEmpty || app.assistantBusy)
+            .disabled(app.assistantBusy || app.threads.isEmpty)
+            Spacer()
+            Button {
+                app.newThread()
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.glass)
+            .disabled(app.assistantBusy || app.messages.isEmpty)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)

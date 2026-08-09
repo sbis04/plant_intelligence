@@ -20,6 +20,40 @@ struct AssistantInfo: Codable {
     }
 }
 
+struct ChatThread: Codable, Identifiable, Hashable {
+    var id: Int
+    var title: String
+    var updatedAt: String
+    var snippet: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, snippet
+        case updatedAt = "updated_at"
+    }
+
+    var displayTitle: String { title.isEmpty ? "Conversation \(id)" : title }
+}
+
+struct ThreadsResponse: Codable {
+    var threads: [ChatThread]
+}
+
+struct StoredMessage: Codable {
+    var role: String
+    var content: String
+    var createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case role, content
+        case createdAt = "created_at"
+    }
+}
+
+struct ThreadMessagesResponse: Codable {
+    var messages: [StoredMessage]?
+    var error: String?
+}
+
 struct DeviceStatus: Codable {
     var boxTemperatureC: Double?
     var boxHumidityPct: Double?

@@ -16,10 +16,15 @@ final class AppState {
     var logs: [LogEntry] = []
     var lastError: String?
 
-    // Assistant conversation (client-side transcript).
+    // Assistant conversation. Threads live on the hub; `messages` mirrors
+    // the currently open one. currentThreadId 0 = the hub creates a thread
+    // on the first message.
     var messages: [ChatMessage] = []
+    var threads: [ChatThread] = []
+    var currentThreadId = 0
     var assistantBusy = false
     var assistantOpen = false   // overlay over the Plants tab
+    private var threadsResumed = false
 
     private var pollTask: Task<Void, Never>?
 
@@ -105,7 +110,10 @@ final class AppState {
         messages.append(ChatMessage(role: .user, text: q))
         var replyIndex: Int?
         do {
-            for try await chunk in client.chatStream(message: q) {
+            let (tid, chunks) = try await client.chatStream(
+                message: q, threadId: currentThreadId)
+            currentThreadId = tid
+            for try await chunk in chunks {
                 if let i = replyIndex {
                     messages[i].text += chunk
                 } else {
@@ -132,10 +140,51 @@ final class AppState {
             }
         }
         assistantBusy = false
+        await loadThreads()   // pick up auto-title / recency reorder
     }
 
-    func resetConversation() async {
-        messages.removeAll()
-        try? await client?.chatReset()
+    // MARK: - Threads
+
+    func loadThreads() async {
+        guard let client else { return }
+        threads = (try? await client.chatThreads()) ?? threads
+    }
+
+    /// First overlay open of the session: resume the last conversation.
+    func resumeThreads() async {
+        guard !threadsResumed else { return }
+        threadsResumed = true
+        await loadThreads()
+        if currentThreadId == 0, let latest = threads.first {
+            await openThread(latest.id)
+        }
+    }
+
+    func openThread(_ id: Int) async {
+        guard !assistantBusy else { return }
+        currentThreadId = id
+        guard let client, id != 0 else { messages = []; return }
+        let stored = (try? await client.threadMessages(id: id)) ?? []
+        messages = stored.map {
+            ChatMessage(role: $0.role == "user" ? .user : .assistant,
+                        text: $0.content)
+        }
+    }
+
+    func newThread() {
+        guard !assistantBusy else { return }
+        currentThreadId = 0
+        messages = []
+    }
+
+    func deleteCurrentThread() async {
+        guard !assistantBusy, currentThreadId != 0, let client else { return }
+        _ = try? await client.deleteThread(id: currentThreadId)
+        await loadThreads()
+        if let latest = threads.first {
+            await openThread(latest.id)
+        } else {
+            newThread()
+        }
     }
 }

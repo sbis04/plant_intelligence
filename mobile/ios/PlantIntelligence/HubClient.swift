@@ -19,10 +19,15 @@ struct HubClient: Sendable {
         return URLSession(configuration: cfg)
     }
 
-    private func get<T: Decodable>(_ path: String, as type: T.Type,
+    private func get<T: Decodable>(_ path: String, query: [String: String] = [:],
+                                   as type: T.Type,
                                    timeout: TimeInterval = 8) async throws -> T {
-        let (data, _) = try await session(timeout: timeout)
-            .data(from: baseURL.appending(path: path))
+        var comps = URLComponents(url: baseURL.appending(path: path),
+                                  resolvingAgainstBaseURL: false)!
+        if !query.isEmpty {
+            comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        let (data, _) = try await session(timeout: timeout).data(from: comps.url!)
         return try JSONDecoder().decode(T.self, from: data)
     }
 
@@ -82,26 +87,34 @@ struct HubClient: Sendable {
                        as: SimpleResponse.self)
     }
 
-    /// On-device LLM: generation on the UNO Q takes a while — long timeout.
-    func chat(message: String) async throws -> ChatResponse {
-        try await post("/api/chat", query: ["message": message],
+    /// Generation can take a while on the on-device fallback — long timeout.
+    func chat(message: String, threadId: Int = 0) async throws -> ChatResponse {
+        try await post("/api/chat",
+                       query: ["message": message, "thread_id": String(threadId)],
                        as: ChatResponse.self, timeout: 300)
     }
 
-    /// Streamed variant: yields text chunks as the model generates them.
-    /// UTF-8-safe: bytes are buffered until they decode cleanly, so a
-    /// multi-byte character split across chunks never corrupts the text.
-    func chatStream(message: String) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+    /// Streamed variant: connects, reports the thread id (existing or newly
+    /// created by the hub — from the X-Thread-Id header), then yields text
+    /// chunks as the model generates them. UTF-8-safe: bytes are buffered
+    /// until they decode cleanly, so a multi-byte character split across
+    /// chunks never corrupts the text.
+    func chatStream(message: String, threadId: Int)
+        async throws -> (threadId: Int, chunks: AsyncThrowingStream<String, Error>) {
+        var comps = URLComponents(
+            url: baseURL.appending(path: "/api/chat/stream"),
+            resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "message", value: message),
+                            URLQueryItem(name: "thread_id", value: String(threadId))]
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "POST"
+        let (bytes, response) = try await session(timeout: 300).bytes(for: req)
+        let tid = (response as? HTTPURLResponse)
+            .flatMap { Int($0.value(forHTTPHeaderField: "X-Thread-Id") ?? "") }
+            ?? threadId
+        let chunks = AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
-                var comps = URLComponents(
-                    url: baseURL.appending(path: "/api/chat/stream"),
-                    resolvingAgainstBaseURL: false)!
-                comps.queryItems = [URLQueryItem(name: "message", value: message)]
-                var req = URLRequest(url: comps.url!)
-                req.httpMethod = "POST"
                 do {
-                    let (bytes, _) = try await session(timeout: 300).bytes(for: req)
                     var buffer = Data()
                     for try await byte in bytes {
                         buffer.append(byte)
@@ -120,9 +133,22 @@ struct HubClient: Sendable {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+        return (tid, chunks)
     }
 
-    func chatReset() async throws {
-        _ = try await post("/api/chat/reset", as: SimpleResponse.self)
+    // MARK: - Assistant threads
+
+    func chatThreads() async throws -> [ChatThread] {
+        try await get("/api/chat/threads", as: ThreadsResponse.self).threads
+    }
+
+    func threadMessages(id: Int) async throws -> [StoredMessage] {
+        try await get("/api/chat/thread", query: ["id": String(id)],
+                      as: ThreadMessagesResponse.self).messages ?? []
+    }
+
+    func deleteThread(id: Int) async throws -> SimpleResponse {
+        try await post("/api/chat/thread/delete", query: ["id": String(id)],
+                       as: SimpleResponse.self)
     }
 }

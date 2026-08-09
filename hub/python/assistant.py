@@ -221,19 +221,21 @@ class Assistant:
                        for p in data["candidates"][0]["content"]["parts"])
 
     # ---- ask ----------------------------------------------------------------
-    def _finish_turn(self, thread_id: int, question: str, reply: str):
-        self.ctx.store.thread_add_message(thread_id, "user", question)
+    def _finish_turn(self, thread_id: int, question: str, reply: str,
+                     attachment_ref: str = ""):
+        self.ctx.store.thread_add_message(thread_id, "user", question,
+                                          attachment=attachment_ref)
         if reply:
             self.ctx.store.thread_add_message(thread_id, "assistant", reply)
 
     def ask_stream(self, question: str, thread_id: int,
-                   attachment: bytes = None):
+                   attachment: bytes = None, attachment_ref: str = ""):
         """Yield the reply incrementally: cloud first when a key is set,
         on-device model when the cloud is unreachable. The exchange is
         persisted to the thread, including a partial reply if the client
         disconnects mid-stream."""
         if attachment:
-            question_stored = question + " 📎"
+            question_stored = question
             question = (question +
                         "\n(The user attached a photo — it is the LAST image; "
                         "the garden camera frame, if present, comes before it.)")
@@ -250,14 +252,14 @@ class Assistant:
                     for text in self._cloud_stream(composed, attachment):
                         collected.append(text)
                         yield text
-                    self._finish_turn(thread_id, question_stored, "".join(collected))
+                    self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
                     return
                 except GeneratorExit:
-                    self._finish_turn(thread_id, question_stored, "".join(collected))
+                    self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
                     raise
                 except Exception as e:
                     if collected:   # died mid-reply: don't restart locally
-                        self._finish_turn(thread_id, question_stored, "".join(collected))
+                        self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
                         yield "\n[cloud connection lost]"
                         return
                     # never produced a byte — offline or bad key: go local
@@ -282,9 +284,9 @@ class Assistant:
                     self.llm.stop_stream()
                 except Exception:
                     pass
-                self._finish_turn(thread_id, question_stored, "".join(collected))
+                self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
                 raise
-            self._finish_turn(thread_id, question_stored, "".join(collected))
+            self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
 
     def ask(self, question: str, thread_id: int) -> str:
         composed = self._compose(question, thread_id)

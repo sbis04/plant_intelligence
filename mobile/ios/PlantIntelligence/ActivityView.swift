@@ -36,8 +36,8 @@ struct ActivityView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 80)
             }
-            .scrollEdgeEffectStyle(.soft, for: .top)
             .background(GardenBackground())
+            .topEdgeFade()
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await app.refreshActivity() }
             .task { await app.refreshActivity() }

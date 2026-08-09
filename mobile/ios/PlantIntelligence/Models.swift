@@ -42,9 +42,10 @@ struct StoredMessage: Codable {
     var role: String
     var content: String
     var createdAt: String
+    var attachment: String?
 
     enum CodingKeys: String, CodingKey {
-        case role, content
+        case role, content, attachment
         case createdAt = "created_at"
     }
 }
@@ -173,6 +174,7 @@ struct ChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: Role
     var text: String
+    var attachmentURL: URL?
 }
 
 /// The hub emits both fractional and whole-second ISO timestamps.

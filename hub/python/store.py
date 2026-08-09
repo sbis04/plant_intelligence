@@ -61,6 +61,11 @@ class Store:
         self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA)
+        try:   # migration: photo attachments on chat messages
+            self._db.execute("ALTER TABLE chat_messages ADD COLUMN"
+                             " attachment TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         self._db.commit()
 
     # ---- logs -----------------------------------------------------------------
@@ -186,29 +191,38 @@ class Store:
                 "SELECT 1 FROM chat_threads WHERE id = ?", (thread_id,)
             ).fetchone() is not None
 
-    def thread_delete(self, thread_id: int):
+    def thread_delete(self, thread_id: int) -> list:
+        """Delete the thread; returns attachment ids so files can go too."""
         with self._lock:
+            rows = self._db.execute(
+                "SELECT attachment FROM chat_messages"
+                " WHERE thread_id = ? AND attachment != ''",
+                (thread_id,)).fetchall()
             self._db.execute("DELETE FROM chat_messages WHERE thread_id = ?",
                              (thread_id,))
             self._db.execute("DELETE FROM chat_threads WHERE id = ?",
                              (thread_id,))
             self._db.commit()
+        return [r[0] for r in rows]
 
     def thread_messages(self, thread_id: int, limit: int = 200) -> list:
         with self._lock:
             rows = self._db.execute(
-                "SELECT role, content, created_at FROM chat_messages"
+                "SELECT role, content, created_at, attachment FROM chat_messages"
                 " WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
                 (thread_id, limit)).fetchall()
-        return [{"role": r[0], "content": r[1], "created_at": r[2]}
+        return [{"role": r[0], "content": r[1], "created_at": r[2],
+                 "attachment": r[3] or ""}
                 for r in reversed(rows)]
 
-    def thread_add_message(self, thread_id: int, role: str, content: str):
+    def thread_add_message(self, thread_id: int, role: str, content: str,
+                           attachment: str = ""):
         now = _now_iso()
         with self._lock:
             self._db.execute(
-                "INSERT INTO chat_messages (thread_id, role, content, created_at)"
-                " VALUES (?, ?, ?, ?)", (thread_id, role, content, now))
+                "INSERT INTO chat_messages (thread_id, role, content,"
+                " created_at, attachment) VALUES (?, ?, ?, ?, ?)",
+                (thread_id, role, content, now, attachment))
             # Auto-title from the first user message; bump recency either way.
             self._db.execute(
                 "UPDATE chat_threads SET updated_at = ?,"

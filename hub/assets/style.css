@@ -194,6 +194,11 @@ main { padding-bottom: 64px; }
 }
 #attach-preview[hidden] { display: none; }
 #attach-preview img { height: 44px; border-radius: 8px; display: block; }
+.msg img {
+  display: block; max-width: 100%; max-height: 240px;
+  border-radius: 10px; margin-bottom: 6px;
+}
+.msg span { display: block; }
 #attach-remove {
   flex: none; width: 20px; height: 20px; padding: 0; border-radius: 50%;
   border: 1px solid var(--line); background: var(--panel); color: var(--muted);

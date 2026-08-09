@@ -197,7 +197,8 @@ async function openThread(id) {
     if (messages && messages.length) {
       chatBox.innerHTML = "";
       for (const m of messages) {
-        addMsg(m.content, m.role === "user" ? "user" : "bot");
+        addMsg(m.content, m.role === "user" ? "user" : "bot",
+               m.attachment ? `/api/chat/attachment?id=${m.attachment}` : null);
       }
       $("chat-suggest").style.display = "none";
     }
@@ -222,12 +223,22 @@ $("thread-delete").addEventListener("click", async () => {
 // resume the most recent conversation on page load
 loadThreads(true).then(() => { if (currentThread) openThread(currentThread); });
 
-function addMsg(text, cls) {
+function addMsg(text, cls, imgURL = null) {
   const empty = chatBox.querySelector(".chat-empty");
   if (empty) empty.remove();
   const div = document.createElement("div");
   div.className = `msg ${cls}`;
-  div.textContent = text;
+  if (imgURL) {
+    const img = document.createElement("img");
+    img.src = imgURL;
+    img.alt = "Attached photo";
+    div.appendChild(img);
+    const span = document.createElement("span");
+    span.textContent = text;
+    div.appendChild(span);
+  } else {
+    div.textContent = text;
+  }
   chatBox.appendChild(div);
   chatBox.scrollTop = chatBox.scrollHeight;
   return div;
@@ -248,7 +259,8 @@ async function askAssistant(question) {
     } catch { /* send without it */ }
     clearAttachment();
   }
-  addMsg(attachId ? `${question} 📎` : question, "user");
+  addMsg(question, "user",
+         attachId ? `/api/chat/attachment?id=${attachId}` : null);
   const pending = addMsg("thinking…", "bot thinking");
   // Honest waiting: show elapsed time plus which backend is actually
   // answering (the status poll keeps assistantBackend current even while

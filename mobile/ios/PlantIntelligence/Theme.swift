@@ -12,6 +12,19 @@ enum Theme {
     static let textMuted = Color(red: 0.561, green: 0.639, blue: 0.596) // #8FA398
 }
 
+extension View {
+    /// The system's progressive top-edge blur on pages that hide the
+    /// navigation bar: an empty safe-area bar gives the scroll edge effect
+    /// something to attach to, and .soft renders the native gradient blur.
+    func topEdgeFade() -> some View {
+        self
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .safeAreaBar(edge: .top, spacing: 0) {
+                Color.clear.frame(height: 1)
+            }
+    }
+}
+
 /// The app-wide backdrop: a deep botanical gradient the glass layers float over.
 struct GardenBackground: View {
     var body: some View {

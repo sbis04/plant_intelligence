@@ -134,19 +134,32 @@ struct AssistantOverlay: View {
     private func bubble(_ msg: ChatMessage) -> some View {
         HStack {
             if msg.role == .user { Spacer(minLength: 48) }
-            Text(msg.text)
-                .font(.subheadline)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    msg.role == .user ? Theme.accent : Theme.panel,
-                    in: .rect(cornerRadius: 16)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(msg.role == .user ? .clear : Theme.line, lineWidth: 1)
-                )
-                .foregroundStyle(msg.role == .user ? Theme.bgDeep : .primary)
+            VStack(alignment: .leading, spacing: 8) {
+                if let url = msg.attachmentURL {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Theme.line)
+                            .frame(width: 160, height: 110)
+                    }
+                    .frame(maxWidth: 220, maxHeight: 300)
+                    .clipShape(.rect(cornerRadius: 10))
+                }
+                Text(msg.text)
+                    .font(.subheadline)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                msg.role == .user ? Theme.accent : Theme.panel,
+                in: .rect(cornerRadius: 16)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(msg.role == .user ? .clear : Theme.line, lineWidth: 1)
+            )
+            .foregroundStyle(msg.role == .user ? Theme.bgDeep : .primary)
             if msg.role == .assistant { Spacer(minLength: 48) }
         }
     }

@@ -126,8 +126,9 @@ final class AppState {
             attachmentId = (try? await client.attach(jpeg)) ?? ""
             pendingAttachment = nil
         }
-        messages.append(ChatMessage(role: .user,
-                                    text: attachmentId.isEmpty ? q : "\(q) 📎"))
+        messages.append(ChatMessage(
+            role: .user, text: q,
+            attachmentURL: attachmentId.isEmpty ? nil : attachmentURL(attachmentId)))
         var replyIndex: Int?
         do {
             let (tid, chunks) = try await client.chatStream(
@@ -181,6 +182,12 @@ final class AppState {
         }
     }
 
+    private func attachmentURL(_ token: String) -> URL? {
+        client?.baseURL
+            .appending(path: "/api/chat/attachment")
+            .appending(queryItems: [.init(name: "id", value: token)])
+    }
+
     func openThread(_ id: Int) async {
         guard !assistantBusy else { return }
         currentThreadId = id
@@ -188,7 +195,9 @@ final class AppState {
         let stored = (try? await client.threadMessages(id: id)) ?? []
         messages = stored.map {
             ChatMessage(role: $0.role == "user" ? .user : .assistant,
-                        text: $0.content)
+                        text: $0.content,
+                        attachmentURL: ($0.attachment?.isEmpty == false)
+                            ? attachmentURL($0.attachment!) : nil)
         }
     }
 

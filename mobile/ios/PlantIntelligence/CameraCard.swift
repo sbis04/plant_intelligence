@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 
@@ -47,6 +48,10 @@ struct CameraCard: View {
             if let image {
                 CameraViewer(
                     image: image,
+                    // Camera-native H.264 relayed as HLS — full quality and
+                    // fps, hardware-decoded by AVPlayer.
+                    liveURL: app.client?.baseURL
+                        .appending(path: "/api/camera/live.m3u8"),
                     // raw=1: bare JPEG stream — URLSession deadlocks on
                     // multipart/x-mixed-replace (legacy per-part handling).
                     streamURL: app.client?.baseURL
@@ -73,16 +78,21 @@ struct CameraCard: View {
     }
 }
 
-/// Full-screen live camera view, fed by the hub's MJPEG stream (with the
-/// last snapshot as the opening frame). The frame is 16:9, so a rotate
-/// button switches the interface to landscape to fill the display; the rest
-/// of the app stays portrait-only (see AppDelegate.allowLandscape).
+/// Full-screen live camera view. Preferred source is the HLS relay of the
+/// camera's own H.264 (full 2K, native fps, hardware-decoded); if that
+/// fails it falls back to the hub's MJPEG stream, with the last snapshot
+/// as the opening frame either way. The frame is 16:9, so a rotate button
+/// switches the interface to landscape to fill the display; the rest of
+/// the app stays portrait-only (see AppDelegate.allowLandscape).
 private struct CameraViewer: View {
     let image: UIImage
+    let liveURL: URL?
     let streamURL: URL?
     @Environment(\.dismiss) private var dismiss
     @State private var live: UIImage?
     @State private var landscape = false
+    @State private var videoReady = false
+    @State private var videoFailed = false
     @State private var streamNote = "starting"
 
     var body: some View {
@@ -93,6 +103,13 @@ private struct CameraViewer: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
+            if let liveURL, !videoFailed {
+                LiveVideoView(url: liveURL,
+                              onReady: { videoReady = true },
+                              onFail: { videoFailed = true })
+                    .opacity(videoReady ? 1 : 0)   // snapshot until frames flow
+                    .ignoresSafeArea()
+            }
             if UserDefaults.standard.bool(forKey: "streamDebug") {   // dev/testing hook
                 Text(streamNote)
                     .font(.caption2.monospaced())
@@ -127,11 +144,20 @@ private struct CameraViewer: View {
                 try? await Task.sleep(for: .milliseconds(600))   // let the cover settle
                 rotate()
             }
-            guard let streamURL else { streamNote = "no stream url"; return }
+            if liveURL == nil {
+                videoFailed = true    // no relay — straight to MJPEG
+                return
+            }
+            // Watchdog: if HLS produces nothing in time, fall back.
+            try? await Task.sleep(for: .seconds(10))
+            if !videoReady { videoFailed = true }
+        }
+        .task(id: videoFailed) {
+            guard videoFailed, let streamURL else { return }
+            streamNote = "hls failed, using mjpeg"
             // Stream until dismissed; brief retries ride out a hub restart
             // or a momentarily saturated camera. On give-up the last
             // snapshot stays on screen.
-            try? await Task.sleep(for: .milliseconds(100))
             for attempt in 1...3 {
                 guard !Task.isCancelled else { return }
                 do {
@@ -170,6 +196,66 @@ private struct CameraViewer: View {
         scene.keyWindow?.rootViewController?
             .setNeedsUpdateOfSupportedInterfaceOrientations()
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
+    }
+}
+
+/// AVPlayer wrapper for the hub's HLS relay — no controls, just video,
+/// hardware-decoded at the camera's native resolution and frame rate.
+private struct LiveVideoView: UIViewRepresentable {
+    let url: URL
+    let onReady: @MainActor @Sendable () -> Void
+    let onFail: @MainActor @Sendable () -> Void
+
+    func makeUIView(context: Context) -> PlayerView {
+        PlayerView(url: url, onReady: onReady, onFail: onFail)
+    }
+
+    func updateUIView(_ uiView: PlayerView, context: Context) {}
+
+    static func dismantleUIView(_ uiView: PlayerView, coordinator: ()) {
+        uiView.stop()
+    }
+}
+
+final class PlayerView: UIView {
+    private let player: AVPlayer
+    private let playerLayer = AVPlayerLayer()
+    private var statusObservation: NSKeyValueObservation?
+
+    init(url: URL,
+         onReady: @escaping @MainActor @Sendable () -> Void,
+         onFail: @escaping @MainActor @Sendable () -> Void) {
+        player = AVPlayer(url: url)
+        player.isMuted = true
+        super.init(frame: .zero)
+        playerLayer.player = player
+        playerLayer.videoGravity = .resizeAspect
+        layer.addSublayer(playerLayer)
+        statusObservation = player.currentItem?.observe(\.status) { item, _ in
+            let status = item.status
+            Task { @MainActor in
+                switch status {
+                case .readyToPlay: onReady()
+                case .failed: onFail()
+                default: break
+                }
+            }
+        }
+        player.play()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer.frame = bounds
+    }
+
+    func stop() {
+        statusObservation = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
     }
 }
 

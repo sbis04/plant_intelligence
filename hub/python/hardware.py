@@ -15,18 +15,19 @@ from arduino.app_utils import Bridge
 # Watering state machine states, mirroring the sketch.
 STATES = {0: "idle", 1: "valve_opening", 2: "watering", 3: "closing"}
 
-# Event codes, mirroring the sketch.
+# Event codes, mirroring the sketch: machine name (for logic), human label
+# (for logs and UI), is_error.
 EVENTS = {
-    1: ("watering_started", False),
-    2: ("watering_ended", False),
-    3: ("watering_stopped", False),
-    4: ("watering_rejected_busy", True),
-    5: ("watering_rejected_too_soon", True),
-    6: ("failsafe_watering_started", True),
-    7: ("fan_on", False),
-    8: ("fan_off", False),
-    9: ("dht_read_failing", True),
-    10: ("dht_recovered", False),
+    1: ("watering_started", "Watering started", False),
+    2: ("watering_ended", "Watering finished", False),
+    3: ("watering_stopped", "Watering stopped by request", False),
+    4: ("watering_rejected_busy", "Watering rejected: already running", True),
+    5: ("watering_rejected_too_soon", "Watering rejected: too soon after the last one", True),
+    6: ("failsafe_watering_started", "Failsafe watering started — the MCU hasn't heard from Linux", True),
+    7: ("fan_on", "Cooling fan on", False),
+    8: ("fan_off", "Cooling fan off", False),
+    9: ("dht_read_failing", "DHT sensor not responding", True),
+    10: ("dht_recovered", "DHT sensor recovered", False),
 }
 
 
@@ -79,13 +80,14 @@ class Hardware:
             self._touch()
 
     def _on_event(self, code: int):
-        name, is_error = EVENTS.get(int(code), (f"unknown_event_{code}", True))
+        name, label, is_error = EVENTS.get(
+            int(code), (f"unknown_event_{code}", f"Unknown MCU event ({code})", True))
         if name in ("fan_on", "fan_off"):
             with self._lock:
                 self._fan_on = name == "fan_on"
         for listener in list(self._event_listeners):
             try:
-                listener(name, is_error)
+                listener(name, label, is_error)
             except Exception:
                 pass
 
@@ -104,7 +106,8 @@ class Hardware:
         Bridge.call("set_failsafe", int(hours))
 
     # ---- accessors --------------------------------------------------------------
-    def on_event(self, listener: Callable[[str, bool], None]):
+    def on_event(self, listener: Callable[[str, str, bool], None]):
+        """listener(machine_name, human_label, is_error)"""
         self._event_listeners.append(listener)
 
     def snapshot(self) -> dict:

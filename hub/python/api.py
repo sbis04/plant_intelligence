@@ -110,6 +110,48 @@ def register(ui, ctx):
         return Response(content=jpeg, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})
 
+    def camera_stream(raw: int = 0):
+        """Live feed over one persistent RTSP session. Default is MJPEG
+        (multipart/x-mixed-replace), which browsers render natively in an
+        <img>. raw=1 sends bare concatenated JPEGs instead — URLSession
+        special-cases multipart/x-mixed-replace in a way that deadlocks its
+        streaming API, so the iOS viewer scans JPEG markers off the raw
+        byte stream."""
+        from fastapi.responses import Response, StreamingResponse
+        if not ctx.camera or not ctx.camera.configured:
+            return {"available": False, "error": "camera not configured"}
+        if not ctx.camera.can_stream:
+            # Explicit 503 so clients fall back to snapshot polling instead
+            # of hanging on an empty 200.
+            return Response(content="too many live viewers", status_code=503)
+
+        frames = ctx.camera.stream()
+
+        def bare():
+            try:
+                yield from frames
+            finally:
+                frames.close()   # disconnect the RTSP session promptly
+
+        def mjpeg():
+            try:
+                for jpg in frames:
+                    yield (b"--frame\r\n"
+                           b"Content-Type: image/jpeg\r\n"
+                           b"Content-Length: " + str(len(jpg)).encode()
+                           + b"\r\n\r\n" + jpg + b"\r\n")
+            finally:
+                frames.close()
+
+        if raw:
+            return StreamingResponse(
+                bare(), media_type="application/octet-stream",
+                headers={"Cache-Control": "no-store"})
+        return StreamingResponse(
+            mjpeg(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store"})
+
     def camera_config(rtsp_url: str, username: str = "", password: str = ""):
         ctx.config.camera_rtsp_url = rtsp_url.strip()
         ctx.config.camera_username = username
@@ -120,6 +162,7 @@ def register(ui, ctx):
 
     ui.expose_api("GET", "/api/system", system)
     ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)
+    ui.expose_api("GET", "/api/camera/stream", camera_stream)
     ui.expose_api("POST", "/api/camera/config", camera_config)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)

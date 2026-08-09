@@ -92,7 +92,7 @@ button {
 button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
 button:active { transform: translateY(1px); }
 
-#camera-img { width: 100%; border-radius: 10px; display: block; cursor: zoom-in; }
+#camera-img { width: 100%; display: block; cursor: zoom-in; }
 
 /* enlarged camera view — centered dialog */
 #camera-modal {
@@ -101,10 +101,12 @@ button:active { transform: translateY(1px); }
   background: rgba(6, 9, 8, 0.82); padding: 32px;
 }
 #camera-modal[hidden] { display: none; }
-#camera-modal-box { position: relative; max-width: min(1400px, 92vw); }
+/* the img sizes itself (no width:100%) so its box hugs the painted frame
+   and the close button anchors to the actual image corner */
+#camera-modal-box { position: relative; }
 #camera-modal-box img {
-  display: block; width: 100%; max-height: 86vh; object-fit: contain;
-  border-radius: 12px; border: 1px solid var(--line);
+  display: block; max-width: min(1400px, 92vw); max-height: 86vh;
+  border: 1px solid var(--line);
 }
 #camera-modal-close {
   position: absolute; top: 10px; right: 10px;

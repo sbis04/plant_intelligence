@@ -271,9 +271,11 @@ async function refreshSystem() {
 }
 
 // ---- garden camera ----------------------------------------------------------
-// Ambient refresh is once a minute (each fetch is an RTSP round-trip to the
-// camera); while the enlarged dialog is open it speeds up to every 5 s.
+// The card refreshes a snapshot once a minute (each fetch is an RTSP
+// round-trip to the camera). The enlarged dialog switches to the MJPEG live
+// stream instead; if the stream fails it falls back to 3 s snapshot polling.
 let cameraTimer = null;
+let cameraFallback = false;
 
 async function refreshCamera() {
   try {
@@ -284,7 +286,9 @@ async function refreshCamera() {
     const img = $("camera-img");
     const old = img.dataset.url;
     img.src = img.dataset.url = URL.createObjectURL(blob);
-    $("camera-modal-img").src = img.src;
+    if (!$("camera-modal").hidden && cameraFallback) {
+      $("camera-modal-img").src = img.src;
+    }
     if (old) URL.revokeObjectURL(old);
     $("camera-card").style.display = "";
   } catch { /* keep card hidden/stale */ }
@@ -292,15 +296,28 @@ async function refreshCamera() {
 
 function scheduleCamera() {
   clearInterval(cameraTimer);
-  // 3 s in the dialog matches the hub's frame cache — faster just re-serves it.
-  cameraTimer = setInterval(refreshCamera, $("camera-modal").hidden ? 60000 : 3000);
+  const fast = !$("camera-modal").hidden && cameraFallback;
+  cameraTimer = setInterval(refreshCamera, fast ? 3000 : 60000);
 }
 
 function setCameraModal(open) {
+  const mimg = $("camera-modal-img");
   $("camera-modal").hidden = !open;
-  if (open) $("camera-modal-img").src = $("camera-img").src;
+  if (open) {
+    cameraFallback = false;
+    mimg.onerror = () => {                        // stream down → poll snapshots
+      mimg.onerror = null;
+      cameraFallback = true;
+      scheduleCamera();
+      refreshCamera();
+    };
+    mimg.src = `/api/camera/stream?t=${Date.now()}`;
+  } else {
+    mimg.onerror = null;
+    mimg.src = "";                                // closes the RTSP session
+    cameraFallback = false;
+  }
   scheduleCamera();
-  if (open) refreshCamera();
 }
 
 $("camera-img").addEventListener("click", () => setCameraModal(true));

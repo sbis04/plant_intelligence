@@ -87,19 +87,27 @@ final class AppState {
         guard !q.isEmpty, !assistantBusy, let client else { return }
         assistantBusy = true
         messages.append(ChatMessage(role: .user, text: q))
+        var replyIndex: Int?
         do {
-            let res = try await client.chat(message: q)
-            if let reply = res.reply {
-                messages.append(ChatMessage(role: .assistant, text: reply))
-            } else {
-                messages.append(ChatMessage(
-                    role: .assistant,
-                    text: "Something went wrong on the hub: \(res.error ?? "no reply")"))
+            for try await chunk in client.chatStream(message: q) {
+                if let i = replyIndex {
+                    messages[i].text += chunk
+                } else {
+                    messages.append(ChatMessage(role: .assistant, text: chunk))
+                    replyIndex = messages.count - 1
+                }
+            }
+            if replyIndex == nil {
+                messages.append(ChatMessage(role: .assistant, text: "No reply from the hub."))
             }
         } catch {
-            messages.append(ChatMessage(
-                role: .assistant,
-                text: "Couldn't reach the hub — is the phone on the same Wi-Fi?"))
+            if replyIndex == nil {
+                messages.append(ChatMessage(
+                    role: .assistant,
+                    text: "Couldn't reach the hub — is the phone on the same Wi-Fi?"))
+            } else if let i = replyIndex {
+                messages[i].text += "\n[connection lost mid-reply]"
+            }
         }
         assistantBusy = false
     }

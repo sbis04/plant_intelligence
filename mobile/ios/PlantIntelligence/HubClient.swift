@@ -83,6 +83,40 @@ struct HubClient: Sendable {
                        as: ChatResponse.self, timeout: 300)
     }
 
+    /// Streamed variant: yields text chunks as the model generates them.
+    /// UTF-8-safe: bytes are buffered until they decode cleanly, so a
+    /// multi-byte character split across chunks never corrupts the text.
+    func chatStream(message: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var comps = URLComponents(
+                    url: baseURL.appending(path: "/api/chat/stream"),
+                    resolvingAgainstBaseURL: false)!
+                comps.queryItems = [URLQueryItem(name: "message", value: message)]
+                var req = URLRequest(url: comps.url!)
+                req.httpMethod = "POST"
+                do {
+                    let (bytes, _) = try await session(timeout: 300).bytes(for: req)
+                    var buffer = Data()
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if let s = String(data: buffer, encoding: .utf8), !s.isEmpty {
+                            continuation.yield(s)
+                            buffer.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    if let tail = String(data: buffer, encoding: .utf8), !tail.isEmpty {
+                        continuation.yield(tail)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     func chatReset() async throws {
         _ = try await post("/api/chat/reset", as: SimpleResponse.self)
     }

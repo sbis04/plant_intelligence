@@ -30,6 +30,12 @@ function render(data) {
   const w = data.weather || {};
   const loc = data.location || {};
 
+  // assistant badge reflects the actual backend
+  const ai = data.assistant || {};
+  $("assistant-chip").textContent = ai.cloud_configured
+    ? (ai.last_backend === "local" ? "cloud · offline fallback" : "Gemini Flash")
+    : "on-device LLM";
+
   // header — click to edit
   $("location").textContent = loc.name || "set location";
 
@@ -173,14 +179,15 @@ async function askAssistant(question) {
   $("chat-suggest").style.display = "none";
   addMsg(question, "user");
   const pending = addMsg("thinking…", "bot thinking");
-  // Honest waiting: the on-device model spends a while reading the live
+  // Honest waiting: the on-device fallback spends a while reading the live
   // data before the first token — show elapsed time so a long wait doesn't
   // look like a hang.
   const started = Date.now();
   const ticker = setInterval(() => {
     if (!pending.classList.contains("thinking")) return;
     const s = Math.round((Date.now() - started) / 1000);
-    pending.textContent = `thinking on-device… ${s}s` +
+    pending.textContent = `thinking… ${s}s` +
+      (s > 20 ? " (answering on-device)" : "") +
       (s > 75 ? " (first answer after a restart takes the longest)" : "");
   }, 1000);
   try {

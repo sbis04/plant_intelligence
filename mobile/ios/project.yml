@@ -14,11 +14,18 @@ targets:
     type: application
     platform: iOS
     sources:
-      - PlantIntelligence
+      - path: PlantIntelligence
+        excludes:
+          - "PlantsIcon.icon"
+      - path: PlantIntelligence/PlantsIcon.icon
+        type: file
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence
         INFOPLIST_KEY_CFBundleDisplayName: Plants
+        # Icon Composer .icon bundle in the sources
+        ASSETCATALOG_COMPILER_APPICON_NAME: PlantsIcon
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

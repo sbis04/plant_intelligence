@@ -66,6 +66,7 @@ def compute_plan(
     duration = float(cfg.base_duration_s)
 
     # ---- weather shapes both cadence and dose --------------------------------
+    rain_expected = False
     if weather is not None:
         t = weather.temp_max_next12h
         if t is not None:
@@ -86,9 +87,11 @@ def compute_plan(
         if p is not None and p >= cfg.rain_skip_probability:
             interval_h *= 2.0
             duration *= 0.7
+            rain_expected = True
             reasons.append(f"rain likely ({p:.0f}% in next 12 h): postponing, rain will do the work")
         if weather.is_raining_now:
             interval_h *= 2.0
+            rain_expected = True
             reasons.append("currently raining: no irrigation needed")
     else:
         reasons.append("no weather data: using neutral cadence")
@@ -112,8 +115,15 @@ def compute_plan(
 
     # ---- when is the next watering due? ---------------------------------------
     if last_watering_end is None:
-        due_at = now                     # never watered: due immediately
-        reasons.append("no watering on record yet")
+        # Never watered. Normally that means "due immediately" — but with no
+        # anchor to postpone from, rain must block explicitly, or a fresh
+        # install waters straight into a storm.
+        if rain_expected:
+            due_at = now + timedelta(hours=6)
+            reasons.append("no watering on record, but rain expected: checking again later")
+        else:
+            due_at = now
+            reasons.append("no watering on record yet")
     else:
         due_at = last_watering_end + timedelta(hours=interval_h)
 

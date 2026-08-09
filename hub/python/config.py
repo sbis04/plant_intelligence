@@ -9,7 +9,11 @@ import json
 import os
 from dataclasses import dataclass, asdict, field
 
-CONFIG_DIR = os.path.expanduser("~/.plant_intelligence")
+# Data lives INSIDE the app directory: it's the only path bind-mounted from
+# the host into the app container, so it survives container rebuilds (adding
+# a brick recreates the container — anything outside this mount is wiped).
+_APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_DIR = os.path.join(_APP_ROOT, "data")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 DB_PATH = os.path.join(CONFIG_DIR, "plant.db")
 

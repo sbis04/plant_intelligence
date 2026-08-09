@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS system_logs (
     is_error INTEGER NOT NULL DEFAULT 0,
     synced INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS chat_threads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL,
+    role TEXT NOT NULL,               -- user | assistant
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -145,6 +158,65 @@ class Store:
                     closed += 1
             self._db.commit()
         return closed
+
+    # ---- assistant threads ------------------------------------------------------
+    def thread_create(self, title: str = "") -> int:
+        now = _now_iso()
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO chat_threads (title, created_at, updated_at)"
+                " VALUES (?, ?, ?)", (title, now, now))
+            self._db.commit()
+            return cur.lastrowid
+
+    def thread_list(self, limit: int = 30) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT t.id, t.title, t.updated_at,"
+                " (SELECT content FROM chat_messages m WHERE m.thread_id = t.id"
+                "  ORDER BY m.id DESC LIMIT 1)"
+                " FROM chat_threads t ORDER BY t.updated_at DESC LIMIT ?",
+                (limit,)).fetchall()
+        return [{"id": r[0], "title": r[1], "updated_at": r[2],
+                 "snippet": (r[3] or "")[:80]} for r in rows]
+
+    def thread_exists(self, thread_id: int) -> bool:
+        with self._lock:
+            return self._db.execute(
+                "SELECT 1 FROM chat_threads WHERE id = ?", (thread_id,)
+            ).fetchone() is not None
+
+    def thread_delete(self, thread_id: int):
+        with self._lock:
+            self._db.execute("DELETE FROM chat_messages WHERE thread_id = ?",
+                             (thread_id,))
+            self._db.execute("DELETE FROM chat_threads WHERE id = ?",
+                             (thread_id,))
+            self._db.commit()
+
+    def thread_messages(self, thread_id: int, limit: int = 200) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT role, content, created_at FROM chat_messages"
+                " WHERE thread_id = ? ORDER BY id DESC LIMIT ?",
+                (thread_id, limit)).fetchall()
+        return [{"role": r[0], "content": r[1], "created_at": r[2]}
+                for r in reversed(rows)]
+
+    def thread_add_message(self, thread_id: int, role: str, content: str):
+        now = _now_iso()
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO chat_messages (thread_id, role, content, created_at)"
+                " VALUES (?, ?, ?, ?)", (thread_id, role, content, now))
+            # Auto-title from the first user message; bump recency either way.
+            self._db.execute(
+                "UPDATE chat_threads SET updated_at = ?,"
+                " title = CASE WHEN title = '' AND ? = 'user'"
+                "              THEN substr(?, 1, 60) ELSE title END"
+                " WHERE id = ?",
+                (now, role, content, thread_id))
+            self._db.commit()
 
     def last_watering_end(self) -> Optional[datetime]:
         with self._lock:

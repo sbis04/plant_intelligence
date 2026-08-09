@@ -18,7 +18,6 @@ import base64
 import json
 import threading
 import urllib.request
-from collections import deque
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -59,7 +58,6 @@ class Assistant:
             temperature=0.3,
             max_tokens=280,
         )
-        self.history: deque = deque(maxlen=3)   # (question, answer)
         self.last_backend = "local"
         # The brick allows one generation at a time; concurrent requests
         # (dashboard + phone) queue here instead of erroring.
@@ -115,12 +113,14 @@ class Assistant:
             "soil_probe_installed": ctx.config.soil_enabled,
         }
 
-    def _compose(self, question: str) -> str:
+    def _compose(self, question: str, thread_id: int) -> str:
         parts = [PERSONA]
-        if self.history:
-            lines = []
-            for q, a in self.history:
-                lines.append(f"User asked: {q}\nYou answered: {a}")
+        # Per-thread history from the store — resuming a thread days later
+        # picks up right where it left off.
+        history = self.ctx.store.thread_messages(thread_id, limit=8)
+        if history:
+            lines = [f"{'User' if m['role'] == 'user' else 'You'}: {m['content']}"
+                     for m in history]
             parts.append("EARLIER IN THIS CONVERSATION:\n" + "\n".join(lines))
         parts.append("LIVE DATA:\n" +
                      json.dumps(self._live_data(), default=str, separators=(",", ":")))
@@ -192,10 +192,17 @@ class Assistant:
                        for p in data["candidates"][0]["content"]["parts"])
 
     # ---- ask ----------------------------------------------------------------
-    def ask_stream(self, question: str):
+    def _finish_turn(self, thread_id: int, question: str, reply: str):
+        self.ctx.store.thread_add_message(thread_id, "user", question)
+        if reply:
+            self.ctx.store.thread_add_message(thread_id, "assistant", reply)
+
+    def ask_stream(self, question: str, thread_id: int):
         """Yield the reply incrementally: cloud first when a key is set,
-        on-device model when the cloud is unreachable."""
-        composed = self._compose(question)
+        on-device model when the cloud is unreachable. The exchange is
+        persisted to the thread, including a partial reply if the client
+        disconnects mid-stream."""
+        composed = self._compose(question, thread_id)
         with self._lock:
             if self.ctx.config.cloud_llm_api_key:
                 # Optimistically mark the attempt so clients polling status
@@ -206,15 +213,14 @@ class Assistant:
                     for text in self._cloud_stream(composed):
                         collected.append(text)
                         yield text
-                    self.last_backend = "cloud"
-                    self.history.append((question, "".join(collected)))
+                    self._finish_turn(thread_id, question, "".join(collected))
                     return
                 except GeneratorExit:
+                    self._finish_turn(thread_id, question, "".join(collected))
                     raise
                 except Exception as e:
                     if collected:   # died mid-reply: don't restart locally
-                        self.last_backend = "cloud"
-                        self.history.append((question, "".join(collected)))
+                        self._finish_turn(thread_id, question, "".join(collected))
                         yield "\n[cloud connection lost]"
                         return
                     # never produced a byte — offline or bad key: go local
@@ -239,29 +245,23 @@ class Assistant:
                     self.llm.stop_stream()
                 except Exception:
                     pass
+                self._finish_turn(thread_id, question, "".join(collected))
                 raise
-            self.history.append((question, "".join(collected)))
+            self._finish_turn(thread_id, question, "".join(collected))
 
-    def ask(self, question: str) -> str:
-        composed = self._compose(question)
+    def ask(self, question: str, thread_id: int) -> str:
+        composed = self._compose(question, thread_id)
         with self._lock:
             if self.ctx.config.cloud_llm_api_key:
                 try:
                     reply = self._cloud_ask(composed)
                     self.last_backend = "cloud"
-                    self.history.append((question, reply))
+                    self._finish_turn(thread_id, question, reply)
                     return reply
                 except Exception:
                     pass
             self.last_backend = "local"
             self._fresh_turn()
             reply = self.llm.chat(composed)
-            self.history.append((question, reply))
+            self._finish_turn(thread_id, question, reply)
             return reply
-
-    def reset(self) -> None:
-        self.history.clear()
-        try:
-            self.llm.clear_memory()
-        except Exception:
-            pass

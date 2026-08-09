@@ -100,9 +100,14 @@
           <h2>Assistant <span class="chip" id="assistant-chip">on-device LLM</span></h2>
           <button id="assistant-close" class="icon-btn" aria-label="Close">✕</button>
         </div>
+        <div id="thread-bar">
+          <select id="thread-select" title="Conversation"></select>
+          <button id="thread-new" class="icon-btn" title="New conversation">＋</button>
+          <button id="thread-delete" class="icon-btn" title="Delete conversation">🗑</button>
+        </div>
         <div id="chat-messages">
-          <p class="chat-empty">Ask anything about your garden — the model runs
-          locally on the UNO Q with live access to all system data.</p>
+          <p class="chat-empty">Ask anything about your garden — grounded in
+          live access to all system data.</p>
         </div>
         <div class="chat-suggest" id="chat-suggest">
           <button class="chip-btn">Why aren't you watering?</button>

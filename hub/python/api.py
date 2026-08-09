@@ -219,43 +219,65 @@ def register(ui, ctx):
     ui.expose_api("POST", "/api/assistant/config", assistant_config)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
-    def chat(message: str):
-        """Ask the on-board assistant. Blocking — local generation takes a
-        while on a 1B model; clients should use a generous timeout."""
+    def _resolve_thread(thread_id: int) -> int:
+        """Existing thread id, or a fresh thread when 0/stale."""
+        if thread_id and ctx.store.thread_exists(thread_id):
+            return thread_id
+        return ctx.store.thread_create()
+
+    def chat(message: str, thread_id: int = 0):
+        """Ask the assistant (blocking). Clients should use a generous
+        timeout — the on-device fallback takes a while on a 1B model."""
         if not ctx.assistant:
             return {"reply": None, "error": "assistant not available"}
+        tid = _resolve_thread(thread_id)
         try:
-            reply = ctx.assistant.ask(message)
-            return {"reply": reply, "error": None}
+            reply = ctx.assistant.ask(message, tid)
+            return {"reply": reply, "thread_id": tid, "error": None}
         except Exception as e:  # model still loading, runner down, etc.
-            return {"reply": None, "error": str(e)}
+            return {"reply": None, "thread_id": tid, "error": str(e)}
 
-    def chat_stream(message: str):
+    def chat_stream(message: str, thread_id: int = 0):
         """Streamed variant: chunked plain text as the model generates.
-        Consumed by the dashboard (fetch reader) and the iOS app
-        (URLSession.bytes)."""
+        The thread id (existing or newly created) is returned in the
+        X-Thread-Id header, available before the body starts."""
         from fastapi.responses import StreamingResponse
+        tid = _resolve_thread(thread_id)
 
         def gen():
             if not ctx.assistant:
                 yield "The assistant isn't available on this hub."
                 return
             try:
-                yield from ctx.assistant.ask_stream(message)
+                yield from ctx.assistant.ask_stream(message, tid)
             except Exception as e:
                 yield f"\n[assistant error: {e}]"
 
-        return StreamingResponse(gen(), media_type="text/plain; charset=utf-8")
+        return StreamingResponse(gen(), media_type="text/plain; charset=utf-8",
+                                 headers={"X-Thread-Id": str(tid)})
 
-    def chat_reset():
-        if ctx.assistant:
-            ctx.assistant.reset()
+    def chat_threads():
+        return {"threads": ctx.store.thread_list()}
+
+    def chat_thread(id: int):
+        if not ctx.store.thread_exists(id):
+            return {"messages": None, "error": "no such thread"}
+        return {"messages": ctx.store.thread_messages(id), "error": None}
+
+    def chat_thread_new():
+        return {"id": ctx.store.thread_create()}
+
+    def chat_thread_delete(id: int):
+        ctx.store.thread_delete(id)
         return {"accepted": True}
 
     ui.expose_api("POST", "/api/location", set_location)
     ui.expose_api("POST", "/api/chat", chat)
     ui.expose_api("POST", "/api/chat/stream", chat_stream)
-    ui.expose_api("POST", "/api/chat/reset", chat_reset)
+    ui.expose_api("GET", "/api/chat/threads", chat_threads)
+    ui.expose_api("GET", "/api/chat/thread", chat_thread)
+    ui.expose_api("POST", "/api/chat/thread/new", chat_thread_new)
+    ui.expose_api("POST", "/api/chat/thread/delete", chat_thread_delete)
 
     # WebSocket commands (the dashboard uses these; the app may too)
     ui.on_message("water", lambda _client, _data=None: water())

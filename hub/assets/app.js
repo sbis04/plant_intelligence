@@ -163,6 +163,64 @@ $("stop-btn").addEventListener("click", async () => {
 const chatBox = $("chat-messages");
 let chatBusy = false;
 let assistantBackend = "local";
+let currentThread = 0;   // 0 = the hub creates a thread on the first message
+
+const EMPTY_HTML = '<p class="chat-empty">Ask anything about your garden — ' +
+  'grounded in live access to all system data.</p>';
+
+async function loadThreads(selectLatest = false) {
+  try {
+    const res = await fetch("/api/chat/threads");
+    const { threads } = await res.json();
+    const sel = $("thread-select");
+    sel.innerHTML = "";
+    for (const t of threads) {
+      const o = document.createElement("option");
+      o.value = t.id;
+      o.textContent = t.title || `Conversation ${t.id}`;
+      sel.appendChild(o);
+    }
+    if (selectLatest) currentThread = threads.length ? threads[0].id : 0;
+    if (currentThread) sel.value = String(currentThread);
+    return threads;
+  } catch { return []; }
+}
+
+async function openThread(id) {
+  currentThread = id;
+  chatBox.innerHTML = EMPTY_HTML;
+  $("chat-suggest").style.display = "";
+  if (!id) return;
+  try {
+    const res = await fetch(`/api/chat/thread?id=${id}`);
+    const { messages } = await res.json();
+    if (messages && messages.length) {
+      chatBox.innerHTML = "";
+      for (const m of messages) {
+        addMsg(m.content, m.role === "user" ? "user" : "bot");
+      }
+      $("chat-suggest").style.display = "none";
+    }
+  } catch { /* keep empty state */ }
+}
+
+$("thread-select").addEventListener("change", (e) =>
+  openThread(Number(e.target.value)));
+$("thread-new").addEventListener("click", () => {
+  currentThread = 0;
+  $("thread-select").value = "";
+  chatBox.innerHTML = EMPTY_HTML;
+  $("chat-suggest").style.display = "";
+});
+$("thread-delete").addEventListener("click", async () => {
+  if (!currentThread) return;
+  await fetch(`/api/chat/thread/delete?id=${currentThread}`, { method: "POST" });
+  const threads = await loadThreads(true);
+  openThread(threads.length ? threads[0].id : 0);
+});
+
+// resume the most recent conversation on page load
+loadThreads(true).then(() => { if (currentThread) openThread(currentThread); });
 
 function addMsg(text, cls) {
   const empty = chatBox.querySelector(".chat-empty");
@@ -197,8 +255,11 @@ async function askAssistant(question) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 300000);
-    const res = await fetch(`/api/chat/stream?message=${encodeURIComponent(question)}`,
+    const res = await fetch(
+      `/api/chat/stream?message=${encodeURIComponent(question)}&thread_id=${currentThread}`,
       { method: "POST", signal: ctrl.signal });
+    const tid = Number(res.headers.get("X-Thread-Id") || 0);
+    if (tid) currentThread = tid;
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let text = "";
@@ -223,6 +284,7 @@ async function askAssistant(question) {
   clearInterval(ticker);
   chatBusy = false;
   $("chat-send").disabled = false;
+  loadThreads();   // pick up the auto-title / recency reorder
 }
 
 $("chat-form").addEventListener("submit", (e) => {

@@ -42,6 +42,14 @@ main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 48px; min-width: 0;
 #panel-resize:hover { background: rgba(76,185,107,0.25); }
 .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .panel-head h2 { margin: 0; }
+
+#thread-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+#thread-bar select {
+  flex: 1; min-width: 0; padding: 6px 8px; font: inherit; font-size: 0.82rem;
+  color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+#thread-bar .icon-btn { flex: none; }
 .icon-btn { flex: none; width: 30px; height: 30px; padding: 0; border-radius: 8px;
   background: var(--bg); color: var(--muted); border: 1px solid var(--line);
   font-size: 0.85rem; }

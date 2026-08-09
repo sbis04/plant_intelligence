@@ -171,6 +171,14 @@ void animThinking(unsigned long now) { // a soft pulse sweeping to and fro
 void serviceMatrix(unsigned long now) {
   if (now - lastAnimMs < 90) return;
   lastAnimMs = now;
+  // "Growing up": loop the sprout until the hub's first ping, so the whole
+  // initialization is visibly alive. Capped at 5 minutes so a hub that
+  // never comes up doesn't burn the LEDs; the running cycle finishes
+  // before handing over, which reads as "ready".
+  bool waitingForHub = !everPinged && now < 300000UL;
+  if (waitingForHub && (bootAnimStart == 0 || now - bootAnimStart >= 3600)) {
+    bootAnimStart = now ? now : 1;
+  }
   bool booting = bootAnimStart && now - bootAnimStart < 3600;
   if (booting)                                    animBoot(now);
   else if (waterState == W_PUMPING ||

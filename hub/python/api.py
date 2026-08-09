@@ -100,7 +100,27 @@ def register(ui, ctx):
         return {"system": system_stats.snapshot()}
 
     ui.expose_api("GET", "/api/config", get_config)
+    def camera_snapshot():
+        from fastapi.responses import Response
+        if not ctx.camera or not ctx.camera.configured:
+            return {"available": False, "error": "camera not configured"}
+        jpeg = ctx.camera.snapshot()
+        if jpeg is None:
+            return {"available": False, "error": ctx.camera.last_error}
+        return Response(content=jpeg, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
+    def camera_config(rtsp_url: str, username: str = "", password: str = ""):
+        ctx.config.camera_rtsp_url = rtsp_url.strip()
+        ctx.config.camera_username = username
+        ctx.config.camera_password = password
+        ctx.config.save()
+        ctx.store.log("SYSTEM", "Camera configured" if rtsp_url else "Camera removed")
+        return {"accepted": True}
+
     ui.expose_api("GET", "/api/system", system)
+    ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)
+    ui.expose_api("POST", "/api/camera/config", camera_config)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
     def chat(message: str):

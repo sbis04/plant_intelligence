@@ -61,6 +61,14 @@ class Config:
     soil_skip_above_pct: float = 60.0    # wet enough → postpone
     soil_water_below_pct: float = 30.0   # dry enough → water regardless of clock
 
+    # --- garden camera (Tapo RTSP; set via POST /api/camera/config) ---------------
+    # Credentials live in hub/data/config.json on the board — gitignored,
+    # never committed. Create them in the Tapo app: Advanced Settings →
+    # Camera Account.
+    camera_rtsp_url: str = ""            # e.g. rtsp://192.168.68.63:554/stream1
+    camera_username: str = ""
+    camera_password: str = ""
+
     # --- failsafe ----------------------------------------------------------------
     failsafe_silence_h: int = 14         # MCU waters on its own after this silence
 

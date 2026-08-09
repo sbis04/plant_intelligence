@@ -259,10 +259,27 @@ async function refreshSystem() {
   } catch { /* footer keeps last values */ }
 }
 
+// ---- garden camera ----------------------------------------------------------
+async function refreshCamera() {
+  try {
+    const res = await fetch(`/api/camera/snapshot?t=${Date.now()}`);
+    const type = res.headers.get("content-type") || "";
+    if (!type.startsWith("image/")) { $("camera-card").style.display = "none"; return; }
+    const blob = await res.blob();
+    const img = $("camera-img");
+    const old = img.dataset.url;
+    img.src = img.dataset.url = URL.createObjectURL(blob);
+    if (old) URL.revokeObjectURL(old);
+    $("camera-card").style.display = "";
+  } catch { /* keep card hidden/stale */ }
+}
+
 refreshStatus();
 refreshHistory();
 refreshLog();
 refreshSystem();
+refreshCamera();
+setInterval(refreshCamera, 6000);
 setInterval(refreshStatus, 3000);
 setInterval(refreshHistory, 30000);
 setInterval(refreshLog, 15000);

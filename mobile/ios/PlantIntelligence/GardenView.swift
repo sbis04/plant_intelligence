@@ -14,6 +14,7 @@ struct GardenView: View {
                 VStack(spacing: 14) {
                     hero
                     tiles
+                    CameraCard()
                     planCard
                     if let w = weather { weatherCard(w) }
                 }

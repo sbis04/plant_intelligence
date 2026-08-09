@@ -44,6 +44,7 @@ class AppContext:
         self.current_plan = None
         self.current_weather = None
         self.assistant = None   # attached in main() after bricks are up
+        self.camera = None
         self._open_watering_row = None
         self._pending_trigger = None   # trigger/reason for the next start event
 
@@ -130,6 +131,12 @@ def main():
         ctx.store.log("SYSTEM", "On-board assistant ready (local LLM)")
     except Exception as e:
         ctx.store.log("SYSTEM", f"Assistant unavailable: {e}", is_error=True)
+
+    try:
+        from camera import CameraService
+        ctx.camera = CameraService(ctx.config)
+    except Exception as e:
+        ctx.store.log("SYSTEM", f"Camera service unavailable: {e}", is_error=True)
 
     api.register(ui, ctx)
 

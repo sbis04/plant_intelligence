@@ -262,6 +262,9 @@ struct GardenView: View {
         }
         .buttonStyle(.plain)
         .background {
+            // Extra frosting: a material layer under the tint deepens the
+            // blur of whatever scrolls behind the glass.
+            Capsule().fill(.thinMaterial)
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
                 let t = context.date.timeIntervalSinceReferenceDate
                 MeshGradient(

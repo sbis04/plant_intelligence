@@ -140,12 +140,12 @@ struct AssistantOverlay: View {
                     // box at the photo's own aspect ratio, leading-aligned.
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFit()
+                            .clipShape(.rect(cornerRadius: 8))
                     } placeholder: {
-                        Rectangle().fill(Theme.line)
+                        RoundedRectangle(cornerRadius: 8).fill(Theme.line)
                             .frame(width: 56, height: 42)
                     }
                     .frame(maxWidth: 110, maxHeight: 82, alignment: .leading)
-                    .clipShape(.rect(cornerRadius: 8))
                 }
                 Text(msg.text)
                     .font(.subheadline)

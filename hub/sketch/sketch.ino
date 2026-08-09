@@ -80,7 +80,9 @@ unsigned long wateringEndMs    = 0;   // when pumping should stop
 unsigned long lastWateringEnd  = 0;   // millis at last completed cycle (0 = never)
 bool everWatered = false;
 
-unsigned long lastPingMs        = 0;
+// Written from the Bridge RPC context, read from loop() — hence volatile,
+// and all comparisons against it use signed differences (see failsafe block).
+volatile unsigned long lastPingMs = 0;
 unsigned long lastFailsafeRunMs = 0;
 bool everPinged = false, everFailsafed = false;
 
@@ -299,9 +301,16 @@ void loop() {
   // --- dead-man failsafe --------------------------------------------------
   // If Linux has been silent past the threshold, water on a conservative
   // timer. Uses ping silence, not wall-clock: no RTC/NTP needed here.
+  //
+  // The silence math uses a SIGNED difference on purpose: a ping lands from
+  // the Bridge RPC context and can stamp lastPingMs a few ms *after* this
+  // iteration's `now` snapshot. Unsigned subtraction would underflow to
+  // ~49 days of "silence" and fire the failsafe instantly (observed on the
+  // bench: a failsafe watering 15 minutes after boot, mid-thunderstorm).
+  long silenceMs = (long)(now - lastPingMs);
   unsigned long sinceLastFailsafe = everFailsafed ? now - lastFailsafeRunMs : FAILSAFE_MIN_GAP_MS;
   unsigned long sinceLastWaterEnd = everWatered   ? now - lastWateringEnd   : FAILSAFE_MIN_GAP_MS;
-  if (now - lastPingMs >= failsafeSilenceMs &&
+  if (silenceMs > 0 && (unsigned long)silenceMs >= failsafeSilenceMs &&
       waterState == W_IDLE &&
       sinceLastFailsafe >= FAILSAFE_MIN_GAP_MS &&
       sinceLastWaterEnd >= FAILSAFE_MIN_GAP_MS) {

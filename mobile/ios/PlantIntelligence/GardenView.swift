@@ -1,9 +1,11 @@
+import PhotosUI
 import SwiftUI
 
 struct GardenView: View {
     @Environment(AppState.self) private var app
     @State private var confirmWater = false
     @State private var draft = ""
+    @State private var photoItem: PhotosPickerItem?
     @FocusState private var inputFocused: Bool
 
     private var s: DeviceStatus? { app.status?.status }
@@ -30,6 +32,7 @@ struct GardenView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 90)
             }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .background(GardenBackground())
             .toolbar(.hidden, for: .navigationBar)
             .overlay {
@@ -257,13 +260,40 @@ struct GardenView: View {
     // the send button lives inside the prompt box.
     private var promptBar: some View {
         GlassEffectContainer {
-            HStack(spacing: 6) {
-                TextField("Ask the garden…", text: $draft, axis: .vertical)
-                    .lineLimit(1...4)
-                    .focused($inputFocused)
+            VStack(alignment: .leading, spacing: 0) {
+                if let image = app.pendingAttachment {
+                    HStack(spacing: 8) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 56, height: 42)
+                            .clipShape(.rect(cornerRadius: 8))
+                        Button {
+                            app.pendingAttachment = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Theme.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                    }
+                    .padding(.top, 10)
                     .padding(.leading, 14)
-                    .padding(.vertical, 10)
-                    .onSubmit(send)
+                }
+                HStack(spacing: 6) {
+                    PhotosPicker(selection: $photoItem, matching: .images) {
+                        Image(systemName: "paperclip")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(Theme.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 12)
+                    TextField("Ask the garden…", text: $draft, axis: .vertical)
+                        .lineLimit(1...4)
+                        .focused($inputFocused)
+                        .padding(.leading, 4)
+                        .padding(.vertical, 10)
+                        .onSubmit(send)
                 if app.assistantBusy {
                     Button {
                         app.stopAsking()
@@ -284,11 +314,22 @@ struct GardenView: View {
                     .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
                     .padding(.trailing, 8)
                 }
+                }
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 14)
+        .onChange(of: photoItem) {
+            guard let item = photoItem else { return }
+            photoItem = nil
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    app.setAttachment(image)
+                }
+            }
+        }
     }
 
     private func send() {

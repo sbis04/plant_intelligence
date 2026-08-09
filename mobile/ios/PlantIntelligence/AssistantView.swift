@@ -75,10 +75,8 @@ struct AssistantOverlay: View {
                 }
                 if app.currentThreadId != 0 {
                     Divider()
-                    Button(role: .destructive) {
+                    Button("Delete conversation", role: .destructive) {
                         Task { await app.deleteCurrentThread() }
-                    } label: {
-                        Label("Delete this conversation", systemImage: "trash")
                     }
                 }
             } label: {

@@ -139,6 +139,12 @@ private struct CameraViewer: View {
             .padding(16)
         }
         .statusBarHidden()
+        .onAppear {
+            // While the viewer is up the whole interface may rotate freely —
+            // physically turning the phone lands in the right orientation.
+            AppDelegate.allowLandscape = true
+            refreshSupportedOrientations()
+        }
         .task {
             if UserDefaults.standard.bool(forKey: "cameraLandscape"), !landscape {   // dev/testing hook
                 try? await Task.sleep(for: .milliseconds(600))   // let the cover settle
@@ -188,13 +194,18 @@ private struct CameraViewer: View {
         requestOrientation(landscape ? .landscapeRight : .portrait)
     }
 
+    private func refreshSupportedOrientations() {
+        // The gate changed, so UIKit must re-query supported orientations.
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.first?
+            .keyWindow?.rootViewController?
+            .setNeedsUpdateOfSupportedInterfaceOrientations()
+    }
+
     private func requestOrientation(_ mask: UIInterfaceOrientationMask) {
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).first else { return }
-        // The gate changed, so UIKit must re-query supported orientations
-        // before the geometry update can take effect.
-        scene.keyWindow?.rootViewController?
-            .setNeedsUpdateOfSupportedInterfaceOrientations()
+        refreshSupportedOrientations()
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
     }
 }

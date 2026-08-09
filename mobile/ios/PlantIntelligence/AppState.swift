@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 @Observable
@@ -24,7 +25,19 @@ final class AppState {
     var currentThreadId = 0
     var assistantBusy = false
     var assistantOpen = false   // overlay over the Plants tab
+    var pendingAttachment: UIImage?
     private var threadsResumed = false
+
+    /// Attach a photo to the next question, pre-shrunk for upload.
+    func setAttachment(_ image: UIImage) {
+        let maxW: CGFloat = 1280
+        guard image.size.width > maxW else { pendingAttachment = image; return }
+        let size = CGSize(width: maxW,
+                          height: image.size.height * maxW / image.size.width)
+        pendingAttachment = UIGraphicsImageRenderer(size: size).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
 
     private var pollTask: Task<Void, Never>?
 
@@ -107,11 +120,19 @@ final class AppState {
 
     private func runAsk(_ q: String, client: HubClient) async {
         assistantBusy = true
-        messages.append(ChatMessage(role: .user, text: q))
+        var attachmentId = ""
+        if let image = pendingAttachment,
+           let jpeg = image.jpegData(compressionQuality: 0.8) {
+            attachmentId = (try? await client.attach(jpeg)) ?? ""
+            pendingAttachment = nil
+        }
+        messages.append(ChatMessage(role: .user,
+                                    text: attachmentId.isEmpty ? q : "\(q) 📎"))
         var replyIndex: Int?
         do {
             let (tid, chunks) = try await client.chatStream(
-                message: q, threadId: currentThreadId)
+                message: q, threadId: currentThreadId,
+                attachmentId: attachmentId)
             currentThreadId = tid
             for try await chunk in chunks {
                 if let i = replyIndex {

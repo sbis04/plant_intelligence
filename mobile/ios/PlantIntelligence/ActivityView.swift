@@ -14,6 +14,13 @@ struct ActivityView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
+                    HStack {
+                        Text("Activity")
+                            .font(.largeTitle.weight(.bold))
+                        Spacer()
+                    }
+                    .padding(.top, 8)
+
                     Picker("Section", selection: $section) {
                         ForEach(Section.allCases) { s in
                             Text(s.rawValue).tag(s)
@@ -26,11 +33,12 @@ struct ActivityView: View {
                     case .log: logList
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 80)
             }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .background(GardenBackground())
-            .navigationTitle("Activity")
+            .toolbar(.hidden, for: .navigationBar)
             .refreshable { await app.refreshActivity() }
             .task { await app.refreshActivity() }
         }

@@ -14,6 +14,13 @@ struct SettingsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
+                    HStack {
+                        Text("Settings")
+                            .font(.largeTitle.weight(.bold))
+                        Spacer()
+                    }
+                    .padding(.top, 8)
+
                     PanelCard(title: "Hub connection") {
                         TextField("192.168.68.64:7000", text: $address)
                             .textFieldStyle(.plain)
@@ -138,11 +145,12 @@ struct SettingsView: View {
                             .foregroundStyle(Theme.textMuted)
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 80)
             }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .background(GardenBackground())
-            .navigationTitle("Settings")
+            .toolbar(.hidden, for: .navigationBar)
             .onAppear { address = app.hubAddress }
         }
     }

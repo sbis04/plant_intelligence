@@ -99,13 +99,14 @@ struct HubClient: Sendable {
     /// chunks as the model generates them. UTF-8-safe: bytes are buffered
     /// until they decode cleanly, so a multi-byte character split across
     /// chunks never corrupts the text.
-    func chatStream(message: String, threadId: Int)
+    func chatStream(message: String, threadId: Int, attachmentId: String = "")
         async throws -> (threadId: Int, chunks: AsyncThrowingStream<String, Error>) {
         var comps = URLComponents(
             url: baseURL.appending(path: "/api/chat/stream"),
             resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "message", value: message),
-                            URLQueryItem(name: "thread_id", value: String(threadId))]
+                            URLQueryItem(name: "thread_id", value: String(threadId)),
+                            URLQueryItem(name: "attachment_id", value: attachmentId)]
         var req = URLRequest(url: comps.url!)
         req.httpMethod = "POST"
         let (bytes, response) = try await session(timeout: 300).bytes(for: req)
@@ -134,6 +135,17 @@ struct HubClient: Sendable {
             continuation.onTermination = { _ in task.cancel() }
         }
         return (tid, chunks)
+    }
+
+    /// Upload a photo to ride along with the next question.
+    func attach(_ jpeg: Data) async throws -> String {
+        var req = URLRequest(url: baseURL.appending(path: "/api/chat/attach"))
+        req.httpMethod = "POST"
+        req.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        req.httpBody = jpeg
+        let (data, _) = try await session(timeout: 30).data(for: req)
+        struct AttachResponse: Decodable { let id: String? }
+        return try JSONDecoder().decode(AttachResponse.self, from: data).id ?? ""
     }
 
     // MARK: - Assistant threads

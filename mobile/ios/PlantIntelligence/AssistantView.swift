@@ -153,7 +153,7 @@ struct AssistantOverlay: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
-                msg.role == .user ? Theme.accent : Theme.panel,
+                msg.role == .user ? Theme.accent.opacity(0.72) : Theme.panel,
                 in: .rect(cornerRadius: 16)
             )
             .overlay(

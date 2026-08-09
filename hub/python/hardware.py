@@ -26,6 +26,7 @@ EVENTS = {
     7: ("fan_on", False),
     8: ("fan_off", False),
     9: ("dht_read_failing", True),
+    10: ("dht_recovered", False),
 }
 
 

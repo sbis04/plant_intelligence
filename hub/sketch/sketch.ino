@@ -31,7 +31,7 @@
  *   2 watering ended (normal)          6 failsafe watering started
  *   3 watering stopped (commanded)     7 fan on
  *   4 watering rejected: already active 8 fan off
- *   9 DHT read failing (persistent)
+ *   9 DHT read failing (persistent)  10 DHT recovered
  */
 
 #include "Arduino_RouterBridge.h"
@@ -88,6 +88,7 @@ bool everPinged = false, everFailsafed = false;
 
 float lastTemp = NAN, lastHum = NAN;
 int   dhtFailStreak = 0;
+bool  dhtFailing = false;   // episodic reporting: one event per failure episode
 int   lastSoilRaw = -1;
 bool  fanOn = false;
 
@@ -259,14 +260,15 @@ void loop() {
     float t, h;
     if (readDHT11(t, h)) {
       lastTemp = t; lastHum = h; dhtFailStreak = 0;
+      if (dhtFailing) { dhtFailing = false; notifyEvent(10); }
       if (!fanOn && t > FAN_ON_TEMP) {
         digitalWrite(PIN_RELAY_FAN, RELAY_ON);  fanOn = true;  notifyEvent(7);
       } else if (fanOn && t < FAN_OFF_TEMP) {
         digitalWrite(PIN_RELAY_FAN, RELAY_OFF); fanOn = false; notifyEvent(8);
       }
-    } else if (++dhtFailStreak == 6) {          // ~1 min of failures
+    } else if (++dhtFailStreak >= 6 && !dhtFailing) {  // ~1 min of failures,
+      dhtFailing = true;                               // reported once per episode
       notifyEvent(9);
-      dhtFailStreak = 0;
     }
   }
 

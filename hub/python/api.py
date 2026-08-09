@@ -98,7 +98,25 @@ def register(ui, ctx):
     ui.expose_api("GET", "/api/config", get_config)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
+    def chat(message: str):
+        """Ask the on-board assistant. Blocking — local generation takes a
+        while on a 1B model; clients should use a generous timeout."""
+        if not ctx.assistant:
+            return {"reply": None, "error": "assistant not available"}
+        try:
+            reply = ctx.assistant.ask(message)
+            return {"reply": reply, "error": None}
+        except Exception as e:  # model still loading, runner down, etc.
+            return {"reply": None, "error": str(e)}
+
+    def chat_reset():
+        if ctx.assistant:
+            ctx.assistant.reset()
+        return {"accepted": True}
+
     ui.expose_api("POST", "/api/location", set_location)
+    ui.expose_api("POST", "/api/chat", chat)
+    ui.expose_api("POST", "/api/chat/reset", chat_reset)
 
     # WebSocket commands (the dashboard uses these; the app may too)
     ui.on_message("water", lambda _client, _data=None: water())

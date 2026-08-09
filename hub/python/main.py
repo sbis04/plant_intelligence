@@ -43,6 +43,7 @@ class AppContext:
 
         self.current_plan = None
         self.current_weather = None
+        self.assistant = None   # attached in main() after bricks are up
         self._open_watering_row = None
         self._pending_trigger = None   # trigger/reason for the next start event
 
@@ -89,8 +90,8 @@ class AppContext:
             # Re-plan immediately so we don't double-trigger on the next tick.
             self.recompute_plan()
 
-    def _on_mcu_event(self, name: str, is_error: bool):
-        self.store.log("MCU", name, is_error)
+    def _on_mcu_event(self, name: str, label: str, is_error: bool):
+        self.store.log("MCU", label, is_error)
 
         if name in ("watering_started", "failsafe_watering_started"):
             trigger, reason = self._pending_trigger or (
@@ -122,6 +123,13 @@ def main():
     ui = WebUI()
     ts = TimeSeriesStore()
     ts.start()
+
+    try:
+        from assistant import Assistant
+        ctx.assistant = Assistant(ctx)
+        ctx.store.log("SYSTEM", "On-board assistant ready (local LLM)")
+    except Exception as e:
+        ctx.store.log("SYSTEM", f"Assistant unavailable: {e}", is_error=True)
 
     api.register(ui, ctx)
 

@@ -160,6 +160,33 @@ def register(ui, ctx):
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={"Cache-Control": "no-store"})
 
+    # ---- live video (HLS proxied from the on-board go2rtc relay) -----------
+    # Only port 7000 leaves the container, so the playlist and segments are
+    # relayed through FastAPI. Relative URLs inside the playlists resolve
+    # against these paths, which mirror go2rtc's own layout.
+    def _relay(path: str):
+        from fastapi.responses import Response
+        if not ctx.relay:
+            return Response(content="relay not available", status_code=503)
+        try:
+            data, ctype = ctx.relay.fetch(path)
+        except Exception as e:
+            return Response(content=str(e), status_code=503)
+        return Response(content=data, media_type=ctype,
+                        headers={"Cache-Control": "no-store"})
+
+    def camera_live():
+        return _relay("stream.m3u8?src=garden&mp4")
+
+    def camera_hls_playlist(id: str):
+        return _relay(f"hls/playlist.m3u8?id={id}")
+
+    def camera_hls_init(id: str):
+        return _relay(f"hls/init.mp4?id={id}")
+
+    def camera_hls_segment(id: str, n: int):
+        return _relay(f"hls/segment.m4s?id={id}&n={n}")
+
     def assistant_config(api_key: str = "", model: str = ""):
         """Set (or clear, with an empty api_key) the cloud model for the
         assistant. The key is persisted only on the board."""
@@ -184,6 +211,10 @@ def register(ui, ctx):
     ui.expose_api("GET", "/api/system", system)
     ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)
     ui.expose_api("GET", "/api/camera/stream", camera_stream)
+    ui.expose_api("GET", "/api/camera/live.m3u8", camera_live)
+    ui.expose_api("GET", "/api/camera/hls/playlist.m3u8", camera_hls_playlist)
+    ui.expose_api("GET", "/api/camera/hls/init.mp4", camera_hls_init)
+    ui.expose_api("GET", "/api/camera/hls/segment.m4s", camera_hls_segment)
     ui.expose_api("POST", "/api/camera/config", camera_config)
     ui.expose_api("POST", "/api/assistant/config", assistant_config)
     ui.expose_api("POST", "/api/water", water)

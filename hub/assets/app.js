@@ -311,21 +311,72 @@ function scheduleCamera() {
   cameraTimer = setInterval(refreshCamera, fast ? 3000 : 60000);
 }
 
+// Preferred live path: HLS relayed from the camera's own H.264 stream —
+// full 2K at native fps, no transcoding on the board. Falls back to the
+// MJPEG stream, then to snapshot polling.
+let hlsPlayer = null;
+
+function startLiveVideo(video) {
+  const src = "/api/camera/live.m3u8";
+  video.style.display = "none";   // snapshot stays until real frames play
+  video.addEventListener("playing", () => { video.style.display = ""; },
+                         { once: true });
+  if (video.canPlayType("application/vnd.apple.mpegurl")) {   // Safari
+    video.onerror = () => fallbackToMjpeg();
+    video.src = src;
+    video.play().catch(() => {});
+    return true;
+  }
+  if (window.Hls && Hls.isSupported()) {
+    hlsPlayer = new Hls();
+    hlsPlayer.on(Hls.Events.ERROR, (_e, data) => {
+      if (data.fatal) fallbackToMjpeg();
+    });
+    hlsPlayer.loadSource(src);
+    hlsPlayer.attachMedia(video);
+    return true;
+  }
+  return false;
+}
+
+function stopLiveVideo() {
+  const video = $("camera-modal-video");
+  if (hlsPlayer) { hlsPlayer.destroy(); hlsPlayer = null; }
+  video.onerror = null;
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  video.style.display = "none";
+}
+
+function fallbackToMjpeg() {
+  stopLiveVideo();
+  const simg = $("camera-modal-stream");
+  simg.style.display = "";
+  simg.onerror = () => {                          // stream down → poll snapshots
+    simg.onerror = null;
+    simg.style.display = "none";
+    cameraFallback = true;
+    scheduleCamera();
+    refreshCamera();
+  };
+  simg.src = `/api/camera/stream?t=${Date.now()}`;
+}
+
 function setCameraModal(open) {
-  const mimg = $("camera-modal-img");
+  const mimg = $("camera-modal-img");     // base: last snapshot, shows instantly
+  const simg = $("camera-modal-stream");  // MJPEG fallback overlay
   $("camera-modal").hidden = !open;
   if (open) {
     cameraFallback = false;
-    mimg.onerror = () => {                        // stream down → poll snapshots
-      mimg.onerror = null;
-      cameraFallback = true;
-      scheduleCamera();
-      refreshCamera();
-    };
-    mimg.src = `/api/camera/stream?t=${Date.now()}`;
+    mimg.src = $("camera-img").src;
+    if (!startLiveVideo($("camera-modal-video"))) fallbackToMjpeg();
   } else {
-    mimg.onerror = null;
-    mimg.src = "";                                // closes the RTSP session
+    stopLiveVideo();
+    simg.onerror = null;
+    simg.src = "";                                // closes the RTSP session
+    simg.style.display = "none";
+    mimg.src = "";
     cameraFallback = false;
   }
   scheduleCamera();

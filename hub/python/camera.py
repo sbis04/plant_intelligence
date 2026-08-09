@@ -31,8 +31,8 @@ MAX_STREAMS = 2             # Tapo allows few RTSP sessions; leave one spare
 STREAM_STALE_S = 30.0       # a slot silent this long is a dead client whose
                             # generator hasn't been reaped yet — don't let it
                             # block new viewers
-STREAM_QUALITY = 92         # plants are static: spend bits on quality,
-STREAM_MAX_FPS = 5.0        # not motion
+STREAM_QUALITY = 88         # plants are static: spend bits on quality,
+STREAM_MAX_FPS = 1.0        # not motion — full-res frames once a second
 
 
 class CameraService:
@@ -96,9 +96,10 @@ class CameraService:
     def stream(self):
         """Yield JPEG frames over one persistent RTSP session.
 
-        Uses the camera's light substream (stream2) — full 2K would soak
-        the LAN and the SoC for a phone-sized live view. Ends silently when
-        the client disconnects (GeneratorExit) or the session cap is hit.
+        Full-resolution main stream at ~1 fps: the viewers show it near
+        full screen, so quality matters more than motion. Ends silently
+        when the client disconnects (GeneratorExit) or the session cap is
+        hit.
         """
         if not self.configured:
             self.last_error = "camera not configured"
@@ -115,8 +116,7 @@ class CameraService:
             if self._config.camera_username:
                 kwargs["username"] = self._config.camera_username
                 kwargs["password"] = self._config.camera_password
-            url = self._config.camera_rtsp_url.replace("stream1", "stream2")
-            cam = Camera(url, **kwargs)
+            cam = Camera(self._config.camera_rtsp_url, **kwargs)
             cam.start()
             last_yield = 0.0
             while True:

@@ -109,10 +109,12 @@ button:active { transform: translateY(1px); }
   display: block; max-width: min(1400px, 92vw); max-height: 86vh;
   border: 1px solid var(--line);
 }
-#camera-modal-stream {
+#camera-modal-stream,
+#camera-modal-video {
   position: absolute; inset: 0; width: 100%; height: 100%;
   border: 1px solid var(--line);
 }
+#camera-modal-video { object-fit: contain; background: transparent; }
 #camera-modal-close {
   position: absolute; top: 10px; right: 10px; z-index: 1;
   width: 32px; height: 32px; border-radius: 50%; padding: 0;

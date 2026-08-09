@@ -156,12 +156,15 @@ void animRainHold(unsigned long now) { // rain expected: a brief reminder —
   }
 }
 
-void animThinking(unsigned long) {     // sparkles while the model reasons
-  for (int i = 0; i < 104; i++) fb[i] = fb[i] > 1 ? fb[i] - 1 : 0;   // decay
-  if (random(100) < 55) {
-    int r = random(8), c = random(13);
-    px(r, c, 7);
-    px(r - 1, c, 2); px(r + 1, c, 2); px(r, c - 1, 2); px(r, c + 1, 2);
+void animThinking(unsigned long now) { // a soft pulse sweeping to and fro
+  memset(fb, 0, sizeof(fb));
+  int phase = (now / 70) % 24;                         // ~1.7 s per round trip
+  int c = phase < 12 ? phase : 24 - phase;             // bounce 0..12..0
+  for (int dc = -2; dc <= 2; dc++) {
+    int cc = c + dc;
+    if (cc < 0 || cc > 12) continue;
+    uint8_t v = dc == 0 ? 6 : (abs(dc) == 1 ? 3 : 1);  // bright core, soft tail
+    for (int r = 2; r <= 5; r++) px(r, cc, v);
   }
 }
 

@@ -3,6 +3,8 @@ import SwiftUI
 struct GardenView: View {
     @Environment(AppState.self) private var app
     @State private var confirmWater = false
+    @State private var draft = ""
+    @FocusState private var inputFocused: Bool
 
     private var s: DeviceStatus? { app.status?.status }
     private var plan: Plan? { app.status?.plan }
@@ -30,7 +32,19 @@ struct GardenView: View {
             }
             .background(GardenBackground())
             .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .bottom) { actionBar }
+            .overlay {
+                if app.assistantOpen {
+                    AssistantOverlay()
+                        .transition(.opacity)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if app.assistantOpen {
+                    promptBar
+                } else {
+                    actionBar
+                }
+            }
             .refreshable {
                 await app.refreshStatus()
                 await app.refreshActivity()
@@ -237,6 +251,40 @@ struct GardenView: View {
         } message: {
             Text("Runs the pump for the planned duration. The hub enforces its own safety limits.")
         }
+    }
+
+    // Replaces the watering bar while the assistant overlay is open;
+    // the send button lives inside the prompt box.
+    private var promptBar: some View {
+        GlassEffectContainer {
+            HStack(spacing: 6) {
+                TextField("Ask the garden…", text: $draft, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($inputFocused)
+                    .padding(.leading, 14)
+                    .padding(.vertical, 10)
+                    .onSubmit(send)
+                Button(action: send) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(app.assistantBusy ||
+                          draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                .padding(.trailing, 8)
+            }
+            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+
+    private func send() {
+        let text = draft
+        draft = ""
+        inputFocused = false
+        Task { await app.ask(text) }
     }
 }
 

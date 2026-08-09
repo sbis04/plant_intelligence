@@ -19,6 +19,7 @@ final class AppState {
     // Assistant conversation (client-side transcript).
     var messages: [ChatMessage] = []
     var assistantBusy = false
+    var assistantOpen = false   // overlay over the Plants tab
 
     private var pollTask: Task<Void, Never>?
 

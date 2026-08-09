@@ -1,9 +1,11 @@
 import SwiftUI
 
-struct AssistantView: View {
+/// The assistant lives as an overlay on the Plants tab (opened from the
+/// detached sparkles button by the tab bar), blurring the dashboard behind
+/// the transcript. The prompt box replaces the watering action bar while
+/// it's open — see GardenView.
+struct AssistantOverlay: View {
     @Environment(AppState.self) private var app
-    @State private var draft = ""
-    @FocusState private var inputFocused: Bool
 
     private let suggestions = [
         "Why aren't you watering?",
@@ -13,7 +15,15 @@ struct AssistantView: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        ZStack(alignment: .top) {
+            // Blur the dashboard, then re-assert the app's dark botanical
+            // gradient so the overlay stays moody whatever is behind it.
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+            GardenBackground()
+                .opacity(0.88)
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 10) {
@@ -30,34 +40,47 @@ struct AssistantView: View {
                         }
                     }
                     .padding(16)
-                    .padding(.bottom, 8)
+                    .padding(.top, 44)   // room for the control row
                 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.immediately)
-                .onTapGesture { inputFocused = false }
                 .onChange(of: app.messages.count) {
                     if let last = app.messages.last?.id {
                         withAnimation(.snappy) { proxy.scrollTo(last, anchor: .bottom) }
                     }
                 }
             }
-            .background(GardenBackground())
-            .navigationTitle("Assistant")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await app.resetConversation() }
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                    }
-                    .disabled(app.messages.isEmpty || app.assistantBusy)
-                }
-            }
-            .safeAreaInset(edge: .bottom) { inputBar }
+
+            controls
         }
     }
 
     // MARK: pieces
+
+    private var controls: some View {
+        HStack {
+            Spacer()
+            Button {
+                Task { await app.resetConversation() }
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.glass)
+            .disabled(app.messages.isEmpty || app.assistantBusy)
+            Button {
+                withAnimation(.snappy) { app.assistantOpen = false }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.glass)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
 
     private var emptyState: some View {
         VStack(spacing: 14) {
@@ -107,39 +130,6 @@ struct AssistantView: View {
                 .foregroundStyle(msg.role == .user ? Theme.bgDeep : .primary)
             if msg.role == .assistant { Spacer(minLength: 48) }
         }
-    }
-
-    private var inputBar: some View {
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
-                TextField("Ask the garden…", text: $draft, axis: .vertical)
-                    .lineLimit(1...4)
-                    .focused($inputFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                    .onSubmit(send)
-
-                Button(action: send) {
-                    Image(systemName: "arrow.up")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 26, height: 26)
-                }
-                .buttonStyle(.glassProminent)
-                .tint(Theme.accent)
-                .disabled(app.assistantBusy ||
-                          draft.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-    }
-
-    private func send() {
-        let text = draft
-        draft = ""
-        inputFocused = false
-        Task { await app.ask(text) }
     }
 }
 

@@ -39,19 +39,31 @@ struct RootView: View {
             Tab("Plants", systemImage: "leaf.fill", value: 0) {
                 GardenView()
             }
-            Tab("Assistant", systemImage: "sparkles", value: 1) {
-                AssistantView()
-            }
             Tab("Activity", systemImage: "clock.arrow.circlepath", value: 2) {
                 ActivityView()
             }
             Tab("Settings", systemImage: "gearshape", value: 3) {
                 SettingsView()
             }
+            // Not a destination: the search role detaches this item to the
+            // right of the tab bar; selecting it opens the assistant overlay
+            // on the Plants tab instead of switching to a tab of its own.
+            Tab("Assistant", systemImage: "sparkles", value: 1, role: .search) {
+                Color.clear
+            }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .onChange(of: selection) {
+            if selection == 1 {
+                selection = 0
+                withAnimation(.snappy) { app.assistantOpen = true }
+            }
+        }
         .task {
             app.startPolling()
+            if UserDefaults.standard.bool(forKey: "openAssistant") {   // dev/testing hook
+                app.assistantOpen = true
+            }
             if UserDefaults.standard.bool(forKey: "autoAsk") {
                 await app.ask("Why aren't you watering right now?")
             }

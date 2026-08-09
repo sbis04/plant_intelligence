@@ -138,31 +138,22 @@ void animRain(unsigned long) {         // drops falling while watering
     fb[c] = (random(100) < 14) ? 7 : 0;
 }
 
-void animIdle(unsigned long now) {     // a slow water surface rolling by
+void animIdle(unsigned long) {         // dark — LEDs live longer off
   memset(fb, 0, sizeof(fb));
-  float t = now / 900.0f;
-  for (int c = 0; c < 13; c++) {
-    // two superimposed waves pick the surface row per column
-    float y = 5.5f + 1.4f * sinf(c * 0.55f + t) + 0.7f * sinf(c * 1.3f - t * 0.6f);
-    int r = (int)y;
-    px(r, c, 4);                                       // crest
-    px(r + 1, c, 2);                                   // body
-    for (int rr = r + 2; rr < 8; rr++) px(rr, c, 1);   // depth
-  }
-  // a firefly drifting above the water
-  int fc = (int)(now / 1400) % 13;
-  uint8_t glow = (now / 200) % 2 ? 3 : 5;
-  px(1 + (int)(1.5f + 1.4f * sinf(t * 0.8f)), fc, glow);
 }
 
-void animRainHold(unsigned long) {     // sparse, lazy drops: rain expected
-  for (int r = 7; r > 0; r--)
-    for (int c = 0; c < 13; c++) {
-      uint8_t v = fb[(r - 1) * 13 + c];
-      fb[r * 13 + c] = v > 1 ? v - 1 : 0;
-    }
-  for (int c = 0; c < 13; c++)
-    fb[c] = (random(100) < 4) ? 5 : 0;
+void animRainHold(unsigned long now) { // rain expected: a brief reminder —
+  if ((now / 1000) % 60 < 4) {         // drops for ~4 s once a minute
+    for (int r = 7; r > 0; r--)
+      for (int c = 0; c < 13; c++) {
+        uint8_t v = fb[(r - 1) * 13 + c];
+        fb[r * 13 + c] = v > 1 ? v - 1 : 0;
+      }
+    for (int c = 0; c < 13; c++)
+      fb[c] = (random(100) < 8) ? 5 : 0;
+  } else {
+    memset(fb, 0, sizeof(fb));
+  }
 }
 
 void animThinking(unsigned long) {     // sparkles while the model reasons

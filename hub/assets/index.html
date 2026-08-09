@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Plant Intelligence</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Plant Intelligence</h1>
+        <span id="conn" class="badge">connecting…</span>
+      </header>
+
+      <section class="tiles">
+        <div class="tile"><span class="label">Soil</span><span class="value" id="soil">–</span></div>
+        <div class="tile"><span class="label">Temperature</span><span class="value" id="temp">–</span></div>
+        <div class="tile"><span class="label">Humidity</span><span class="value" id="hum">–</span></div>
+        <div class="tile"><span class="label">Watering</span><span class="value" id="wstate">–</span></div>
+      </section>
+
+      <section class="card" id="plan-card">
+        <h2>Next watering</h2>
+        <p class="big" id="next">–</p>
+        <ul id="reasons"></ul>
+        <p class="muted" id="weather">–</p>
+      </section>
+
+      <section class="actions">
+        <button id="water-btn">Water now</button>
+        <button id="stop-btn" class="secondary">Stop</button>
+      </section>
+
+      <section class="card">
+        <h2>Recent waterings</h2>
+        <table id="history"><tbody></tbody></table>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

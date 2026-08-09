@@ -1,0 +1,51 @@
+:root {
+  --bg: #101613;
+  --panel: #1a2420;
+  --line: #2a3830;
+  --text: #e8efe9;
+  --muted: #8fa398;
+  --accent: #4cb96b;
+  --warn: #d98a3d;
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+
+main { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+
+header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+h1 { font-size: 1.35rem; font-weight: 650; }
+h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 10px; }
+
+.badge { font-size: 0.75rem; color: var(--muted); }
+.badge.ok { color: var(--accent); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.tile .label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.tile .value { font-size: 1.5rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .value.active { color: var(--accent); }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.big { font-size: 1.15rem; font-weight: 600; margin-bottom: 8px; }
+#reasons { margin: 0 0 8px 18px; color: var(--muted); font-size: 0.9rem; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+
+.actions { display: flex; gap: 10px; margin-bottom: 16px; }
+button {
+  flex: 1; padding: 12px; border: 0; border-radius: 10px;
+  background: var(--accent); color: #0c130e;
+  font-size: 1rem; font-weight: 650; cursor: pointer;
+}
+button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+button:active { transform: translateY(1px); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+td { padding: 6px 4px; border-top: 1px solid var(--line); }
+td.trigger { color: var(--muted); text-align: right; }

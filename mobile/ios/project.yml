@@ -1,0 +1,33 @@
+name: PlantIntelligence
+options:
+  bundleIdPrefix: dev.souvik
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  PlantIntelligence:
+    type: application
+    platform: iOS
+    sources:
+      - PlantIntelligence
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: PlantIntelligence/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
+        UILaunchScreen: {}

@@ -264,15 +264,26 @@ struct GardenView: View {
                     .padding(.leading, 14)
                     .padding(.vertical, 10)
                     .onSubmit(send)
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(Theme.accent)
+                if app.assistantBusy {
+                    Button {
+                        app.stopAsking()
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(Theme.err)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+                } else {
+                    Button(action: send) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .padding(.trailing, 8)
                 }
-                .buttonStyle(.plain)
-                .disabled(app.assistantBusy ||
-                          draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                .padding(.trailing, 8)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
         }

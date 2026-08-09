@@ -83,9 +83,24 @@ final class AppState {
 
     // MARK: - Assistant
 
+    private var askTask: Task<Void, Never>?
+
     func ask(_ question: String) async {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !assistantBusy, let client else { return }
+        // Run in an owned task so a stop button can cancel mid-stream;
+        // dropping the connection makes the hub stop generation too.
+        let task = Task { await runAsk(q, client: client) }
+        askTask = task
+        await task.value
+        askTask = nil
+    }
+
+    func stopAsking() {
+        askTask?.cancel()
+    }
+
+    private func runAsk(_ q: String, client: HubClient) async {
         assistantBusy = true
         messages.append(ChatMessage(role: .user, text: q))
         var replyIndex: Int?
@@ -102,12 +117,18 @@ final class AppState {
                 messages.append(ChatMessage(role: .assistant, text: "No reply from the hub."))
             }
         } catch {
-            if replyIndex == nil {
+            if Task.isCancelled {
+                if let i = replyIndex {
+                    messages[i].text += " [stopped]"
+                } else {
+                    messages.append(ChatMessage(role: .assistant, text: "[stopped]"))
+                }
+            } else if let i = replyIndex {
+                messages[i].text += "\n[connection lost mid-reply]"
+            } else {
                 messages.append(ChatMessage(
                     role: .assistant,
                     text: "Couldn't reach the hub — is the phone on the same Wi-Fi?"))
-            } else if let i = replyIndex {
-                messages[i].text += "\n[connection lost mid-reply]"
             }
         }
         assistantBusy = false

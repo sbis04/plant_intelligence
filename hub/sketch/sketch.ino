@@ -35,6 +35,7 @@
  */
 
 #include "Arduino_RouterBridge.h"
+#include <Arduino_LED_Matrix.h>
 
 // ---------------------------------------------------------------- pins
 // 4-channel relay module, ACTIVE LOW (LOW = energized), as on the old rig.
@@ -95,6 +96,61 @@ bool  fanOn = false;
 unsigned long lastTelemetryMs = 0, lastDhtMs = 0;
 bool soilRailOn = false;
 unsigned long soilRailOnMs = 0;
+
+// ---------------------------------------------------------------- LED matrix
+// The 8x13 grid is the board's face: a sprout grows at boot, rain falls
+// while watering, and a single pixel breathes when idle. All procedural —
+// no frame tables — ticked non-blocking from loop().
+Arduino_LED_Matrix matrix;
+uint8_t fb[104];                       // row-major 8x13 framebuffer, 0..7
+unsigned long lastAnimMs = 0;
+unsigned long bootAnimStart = 0;
+
+inline void px(int r, int c, uint8_t v) {
+  if (r >= 0 && r < 8 && c >= 0 && c < 13) fb[r * 13 + c] = v;
+}
+
+void animBoot(unsigned long now) {     // sprout grows from the soil
+  unsigned long t = now - bootAnimStart;
+  memset(fb, 0, sizeof(fb));
+  for (int c = 0; c < 13; c++) px(7, c, 1);          // soil line
+  int h = t / 220;                                    // stem height over time
+  for (int r = 6; r >= 7 - h && r >= 2; r--) px(r, 6, 6);
+  if (h >= 3) { px(4, 5, 4); px(4, 7, 4); }           // first leaves
+  if (h >= 4) { px(3, 4, 3); px(3, 8, 3); px(2, 6, 7); } // crown
+  if (t > 2600) {                                     // fade out, hand to idle
+    uint8_t fade = min(7UL, (t - 2600) / 120);
+    for (int i = 0; i < 104; i++) fb[i] = fb[i] > fade ? fb[i] - fade : 0;
+  }
+}
+
+void animRain(unsigned long) {         // drops falling while watering
+  for (int r = 7; r > 0; r--)                          // shift + fade down
+    for (int c = 0; c < 13; c++) {
+      uint8_t v = fb[(r - 1) * 13 + c];
+      fb[r * 13 + c] = v > 2 ? v - 2 : 0;
+    }
+  for (int c = 0; c < 13; c++)                         // spawn new drops
+    fb[c] = (random(100) < 14) ? 7 : 0;
+}
+
+void animIdle(unsigned long now) {     // slow breathing pixel, corner
+  memset(fb, 0, sizeof(fb));
+  uint16_t t = (now / 24) % 256;                       // ~6 s cycle
+  uint8_t tri = t < 128 ? t : 255 - t;                 // triangle wave
+  px(7, 12, tri / 32);                                 // 0..3, easy on the eyes
+}
+
+void serviceMatrix(unsigned long now) {
+  if (now - lastAnimMs < 90) return;
+  lastAnimMs = now;
+  bool booting = bootAnimStart && now - bootAnimStart < 3600;
+  if (booting)                                    animBoot(now);
+  else if (waterState == W_PUMPING ||
+           waterState == W_VALVE_OPENING)         animRain(now);
+  else                                            animIdle(now);
+  matrix.draw(fb);
+}
 
 // ---------------------------------------------------------------- helpers
 void notifyEvent(int code) { Bridge.notify("on_event", code); }
@@ -245,6 +301,12 @@ void setup() {
   Bridge.provide("ping",           rpc_ping);
   Bridge.provide("set_failsafe",   rpc_set_failsafe);
 
+  matrix.begin();
+  matrix.setGrayscaleBits(3);
+  matrix.clear();
+  bootAnimStart = millis();
+  if (bootAnimStart == 0) bootAnimStart = 1;   // 0 means "no boot anim"
+
   lastPingMs = millis(); // grace period from boot
   Monitor.println("Plant Intelligence MCU ready");
 }
@@ -253,6 +315,7 @@ void loop() {
   unsigned long now = millis();
 
   serviceWatering();
+  serviceMatrix(now);
 
   // --- DHT11 + fan thermostat -------------------------------------------
   if (now - lastDhtMs >= DHT_PERIOD_MS) {

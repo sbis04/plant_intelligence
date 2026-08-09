@@ -15,7 +15,8 @@ together. No system role, no server-side memory — nothing to get poisoned.
 import json
 import threading
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from arduino.app_bricks.llm import LargeLanguageModel
 
@@ -36,7 +37,10 @@ PERSONA = (
     "- sensors.soil_pct null means the soil probe isn't installed yet; "
     "box_temperature_c null means the box sensor isn't wired yet. Say it "
     "that way, not 'null'.\n"
-    "- Timestamps are ISO format."
+    "- All times are already in the garden's local timezone — repeat them "
+    "as written.\n"
+    "- Answer in plain conversational sentences. Never output raw JSON, "
+    "field names, or machine-formatted timestamps."
 )
 
 
@@ -64,8 +68,16 @@ class Assistant:
         def clean(d):
             return {k: v for k, v in d.items() if v is not None} if d else None
 
-        def ts(s):
-            return s[:16] if isinstance(s, str) else s   # 2026-08-09T09:21
+        tz = ZoneInfo(ctx.config.timezone)
+
+        def ts(v):
+            """ISO timestamp -> 'Mon 10 Aug, 09:50 PM' garden-local. A 1B
+            model can't do timezone math; hand it display-ready strings."""
+            try:
+                dt = datetime.fromisoformat(v) if isinstance(v, str) else v
+                return dt.astimezone(tz).strftime("%a %d %b, %I:%M %p")
+            except (ValueError, TypeError, AttributeError):
+                return v
 
         snap = ctx.hardware.snapshot()
         snap["soil_pct"] = ctx.config.soil_raw_to_pct(snap.get("soil_raw", -1))
@@ -81,11 +93,15 @@ class Assistant:
         logs = [f'{ts(l["timestamp"])} {l["message"]}'
                 for l in ctx.store.recent_logs(3)]
 
+        plan = clean(ctx.current_plan.to_dict()) if ctx.current_plan else None
+        if plan and plan.get("next_water_at"):
+            plan["next_water_at"] = ts(plan["next_water_at"])
+
         return {
-            "now_utc": datetime.now(timezone.utc).isoformat(timespec="minutes"),
+            "now": ts(datetime.now(tz)),
             "garden_location": ctx.config.location_name,
             "sensors": clean(snap),
-            "watering_plan": clean(ctx.current_plan.to_dict()) if ctx.current_plan else None,
+            "watering_plan": plan,
             "weather": clean(ctx.current_weather.to_dict()) if ctx.current_weather else None,
             "recent_waterings": waterings,
             "recent_logs": logs,

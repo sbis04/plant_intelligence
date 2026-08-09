@@ -114,6 +114,11 @@ def compute_plan(
     duration_s = int(max(cfg.min_duration_s, min(cfg.max_duration_s, duration)))
 
     # ---- when is the next watering due? ---------------------------------------
+    # History rows are stored in UTC; window snapping must happen in the
+    # garden's local time or 05:30 becomes 05:30 UTC (11:00 in Kolkata).
+    if last_watering_end is not None and now.tzinfo is not None:
+        last_watering_end = last_watering_end.astimezone(now.tzinfo)
+
     if last_watering_end is None:
         # Never watered. Normally that means "due immediately" — but with no
         # anchor to postpone from, rain must block explicitly, or a fresh

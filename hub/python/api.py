@@ -21,6 +21,8 @@ Endpoints:
 
 from typing import Optional
 
+from fastapi import Request
+
 
 def _location(ctx) -> dict:
     return {
@@ -225,6 +227,27 @@ def register(ui, ctx):
             return thread_id
         return ctx.store.thread_create()
 
+    # Photos the user attaches to a question: uploaded first (raw bytes),
+    # referenced by id in the next chat call, held briefly in memory only.
+    _attachments: dict = {}
+
+    async def chat_attach(request: Request):
+        import time as _t
+        import uuid
+        data = await request.body()
+        if not data:
+            return {"id": None, "error": "empty body"}
+        if len(data) > 10_000_000:
+            return {"id": None, "error": "image too large"}
+        now = _t.time()
+        for k in [k for k, v in _attachments.items() if now - v[1] > 300]:
+            _attachments.pop(k, None)
+        while len(_attachments) >= 6:   # tiny cache — one question's worth
+            _attachments.pop(next(iter(_attachments)))
+        token = uuid.uuid4().hex[:12]
+        _attachments[token] = (data, now)
+        return {"id": token, "error": None}
+
     def chat(message: str, thread_id: int = 0):
         """Ask the assistant (blocking). Clients should use a generous
         timeout — the on-device fallback takes a while on a 1B model."""
@@ -237,19 +260,22 @@ def register(ui, ctx):
         except Exception as e:  # model still loading, runner down, etc.
             return {"reply": None, "thread_id": tid, "error": str(e)}
 
-    def chat_stream(message: str, thread_id: int = 0):
+    def chat_stream(message: str, thread_id: int = 0, attachment_id: str = ""):
         """Streamed variant: chunked plain text as the model generates.
         The thread id (existing or newly created) is returned in the
         X-Thread-Id header, available before the body starts."""
         from fastapi.responses import StreamingResponse
         tid = _resolve_thread(thread_id)
+        attachment = _attachments.pop(attachment_id, (None, 0))[0] \
+            if attachment_id else None
 
         def gen():
             if not ctx.assistant:
                 yield "The assistant isn't available on this hub."
                 return
             try:
-                yield from ctx.assistant.ask_stream(message, tid)
+                yield from ctx.assistant.ask_stream(message, tid,
+                                                    attachment=attachment)
             except Exception as e:
                 yield f"\n[assistant error: {e}]"
 
@@ -274,6 +300,7 @@ def register(ui, ctx):
     ui.expose_api("POST", "/api/location", set_location)
     ui.expose_api("POST", "/api/chat", chat)
     ui.expose_api("POST", "/api/chat/stream", chat_stream)
+    ui.expose_api("POST", "/api/chat/attach", chat_attach)
     ui.expose_api("GET", "/api/chat/threads", chat_threads)
     ui.expose_api("GET", "/api/chat/thread", chat_thread)
     ui.expose_api("POST", "/api/chat/thread/new", chat_thread_new)

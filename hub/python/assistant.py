@@ -141,7 +141,8 @@ class Assistant:
             pass
 
     # ---- cloud (Gemini Flash) ----------------------------------------------
-    def _cloud_request(self, path: str, composed: str):
+    def _cloud_request(self, path: str, composed: str,
+                       attachment: bytes = None):
         cfg = self.ctx.config
         parts = [{"text": composed}]
         # Gemini is multimodal: attach the camera's current frame so the
@@ -151,14 +152,22 @@ class Assistant:
         if cam is not None and cam.configured:
             jpeg = cam.snapshot()
             if jpeg:
+                jpeg = self._shrink(jpeg)
                 parts.append({"inline_data": {
                     "mime_type": "image/jpeg",
                     "data": base64.b64encode(jpeg).decode()}})
+        if attachment:
+            parts.append({"inline_data": {
+                "mime_type": "image/jpeg",
+                "data": base64.b64encode(self._shrink(attachment)).decode()}})
         body = json.dumps({
             "contents": [{"parts": parts}],
             # Generous cap: Gemini's hidden thinking tokens count against
             # this limit, and a tight one truncates the visible answer.
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
+            # Minimal thinking: first token in ~2 s instead of ~20 s — for
+            # grounded garden Q&A the deep-reasoning mode buys nothing.
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192,
+                                 "thinkingConfig": {"thinkingLevel": "minimal"}},
         }).encode()
         req = urllib.request.Request(
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -169,10 +178,30 @@ class Assistant:
         # The short timeout doubles as the "is the internet up?" check.
         return urllib.request.urlopen(req, timeout=15)
 
-    def _cloud_stream(self, composed: str):
+    @staticmethod
+    def _shrink(jpeg: bytes, max_w: int = 1024) -> bytes:
+        """Downscale the camera frame before upload: the model tiles images
+        anyway, and a 2K frame just slows time-to-first-token."""
+        try:
+            import cv2
+            import numpy as np
+            img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+            h, w = img.shape[:2]
+            if w <= max_w:
+                return jpeg
+            img = cv2.resize(img, (max_w, int(h * max_w / w)),
+                             interpolation=cv2.INTER_AREA)
+            ok, out = cv2.imencode(".jpg", img,
+                                   [cv2.IMWRITE_JPEG_QUALITY, 80])
+            return out.tobytes() if ok else jpeg
+        except Exception:
+            return jpeg
+
+    def _cloud_stream(self, composed: str, attachment: bytes = None):
         """Yield text chunks from Gemini's SSE stream. Raises on failure —
         the caller falls back to the local model."""
-        with self._cloud_request("streamGenerateContent?alt=sse", composed) as r:
+        with self._cloud_request("streamGenerateContent?alt=sse", composed,
+                                 attachment) as r:
             for raw in r:
                 line = raw.decode("utf-8", "replace").strip()
                 if not line.startswith("data:"):
@@ -197,11 +226,19 @@ class Assistant:
         if reply:
             self.ctx.store.thread_add_message(thread_id, "assistant", reply)
 
-    def ask_stream(self, question: str, thread_id: int):
+    def ask_stream(self, question: str, thread_id: int,
+                   attachment: bytes = None):
         """Yield the reply incrementally: cloud first when a key is set,
         on-device model when the cloud is unreachable. The exchange is
         persisted to the thread, including a partial reply if the client
         disconnects mid-stream."""
+        if attachment:
+            question_stored = question + " 📎"
+            question = (question +
+                        "\n(The user attached a photo — it is the LAST image; "
+                        "the garden camera frame, if present, comes before it.)")
+        else:
+            question_stored = question
         composed = self._compose(question, thread_id)
         with self._lock:
             if self.ctx.config.cloud_llm_api_key:
@@ -210,17 +247,17 @@ class Assistant:
                 self.last_backend = "cloud"
                 collected = []
                 try:
-                    for text in self._cloud_stream(composed):
+                    for text in self._cloud_stream(composed, attachment):
                         collected.append(text)
                         yield text
-                    self._finish_turn(thread_id, question, "".join(collected))
+                    self._finish_turn(thread_id, question_stored, "".join(collected))
                     return
                 except GeneratorExit:
-                    self._finish_turn(thread_id, question, "".join(collected))
+                    self._finish_turn(thread_id, question_stored, "".join(collected))
                     raise
                 except Exception as e:
                     if collected:   # died mid-reply: don't restart locally
-                        self._finish_turn(thread_id, question, "".join(collected))
+                        self._finish_turn(thread_id, question_stored, "".join(collected))
                         yield "\n[cloud connection lost]"
                         return
                     # never produced a byte — offline or bad key: go local
@@ -245,9 +282,9 @@ class Assistant:
                     self.llm.stop_stream()
                 except Exception:
                     pass
-                self._finish_turn(thread_id, question, "".join(collected))
+                self._finish_turn(thread_id, question_stored, "".join(collected))
                 raise
-            self._finish_turn(thread_id, question, "".join(collected))
+            self._finish_turn(thread_id, question_stored, "".join(collected))
 
     def ask(self, question: str, thread_id: int) -> str:
         composed = self._compose(question, thread_id)

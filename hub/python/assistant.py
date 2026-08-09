@@ -14,6 +14,7 @@ a short self-managed transcript, live data, and the question, all folded
 together. No system role, no server-side memory — nothing to get poisoned.
 """
 
+import base64
 import json
 import threading
 import urllib.request
@@ -42,6 +43,8 @@ PERSONA = (
     "that way, not 'null'.\n"
     "- All times are already in the garden's local timezone — repeat them "
     "as written.\n"
+    "- If a photo of the garden is attached, it is the camera's CURRENT "
+    "view — use it whenever the question is about how the plants look.\n"
     "- Answer in plain conversational sentences. Never output raw JSON, "
     "field names, or machine-formatted timestamps."
 )
@@ -140,8 +143,19 @@ class Assistant:
     # ---- cloud (Gemini Flash) ----------------------------------------------
     def _cloud_request(self, path: str, composed: str):
         cfg = self.ctx.config
+        parts = [{"text": composed}]
+        # Gemini is multimodal: attach the camera's current frame so the
+        # assistant can actually look at the plants. The on-device fallback
+        # is text-only, so vision simply isn't available offline.
+        cam = getattr(self.ctx, "camera", None)
+        if cam is not None and cam.configured:
+            jpeg = cam.snapshot()
+            if jpeg:
+                parts.append({"inline_data": {
+                    "mime_type": "image/jpeg",
+                    "data": base64.b64encode(jpeg).decode()}})
         body = json.dumps({
-            "contents": [{"parts": [{"text": composed}]}],
+            "contents": [{"parts": parts}],
             # Generous cap: Gemini's hidden thinking tokens count against
             # this limit, and a tight one truncates the visible answer.
             "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},

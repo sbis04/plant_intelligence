@@ -232,16 +232,7 @@ struct GardenView: View {
                     .buttonStyle(.glassProminent)
                     .tint(Theme.err)
                 } else {
-                    Button {
-                        confirmWater = true
-                    } label: {
-                        Label("Water now", systemImage: "drop.fill")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .tint(Theme.accent)
-                    .disabled(app.link != .live)
+                    waterNowButton
                 }
             }
         }
@@ -254,6 +245,65 @@ struct GardenView: View {
         } message: {
             Text("Runs the pump for the planned duration. The hub enforces its own safety limits.")
         }
+    }
+
+    /// The hero action: a living water surface — an animated mesh gradient
+    /// of greens and aquas with a shimmer sweeping across.
+    private var waterNowButton: some View {
+        Button {
+            confirmWater = true
+        } label: {
+            Label("Water now", systemImage: "drop.fill")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+        }
+        .buttonStyle(.plain)
+        .background {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    MeshGradient(
+                        width: 3, height: 3,
+                        points: [
+                            [0, 0],
+                            [0.5 + 0.22 * Float(sin(t * 0.7)), 0],
+                            [1, 0],
+                            [0, 0.5 + 0.28 * Float(cos(t * 0.6))],
+                            [0.5 + 0.3 * Float(sin(t * 0.8)),
+                             0.5 + 0.3 * Float(cos(t * 0.9))],
+                            [1, 0.5 - 0.28 * Float(sin(t * 0.5))],
+                            [0, 1],
+                            [0.5 - 0.22 * Float(cos(t * 0.7)), 1],
+                            [1, 1],
+                        ],
+                        colors: [
+                            Color(red: 0.16, green: 0.62, blue: 0.39),
+                            Color(red: 0.30, green: 0.78, blue: 0.47),
+                            Color(red: 0.13, green: 0.55, blue: 0.45),
+                            Color(red: 0.18, green: 0.75, blue: 0.62),
+                            Theme.accent,
+                            Color(red: 0.10, green: 0.50, blue: 0.34),
+                            Color(red: 0.15, green: 0.65, blue: 0.55),
+                            Color(red: 0.28, green: 0.80, blue: 0.55),
+                            Color(red: 0.12, green: 0.58, blue: 0.40),
+                        ])
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.3), .clear],
+                        startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 90)
+                        .offset(x: CGFloat(
+                            t.truncatingRemainder(dividingBy: 2.8) / 2.8) * 560 - 280)
+                        .blur(radius: 6)
+                }
+            }
+        }
+        .clipShape(Capsule())
+        .shadow(color: Theme.accent.opacity(0.4), radius: 12, y: 4)
+        .disabled(app.link != .live)
+        .opacity(app.link == .live ? 1 : 0.55)
     }
 
     // Replaces the watering bar while the assistant overlay is open;

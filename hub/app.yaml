@@ -1,0 +1,8 @@
+name: Plant Intelligence
+icon: 🌱
+description: Adaptive irrigation hub — weather-aware watering cadence, soil feedback, and a local API for the mobile app.
+
+bricks:
+  - arduino:web_ui
+  - arduino:weather_forecast
+  - arduino:dbstorage_tsstore

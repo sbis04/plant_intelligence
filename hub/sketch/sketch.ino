@@ -1,0 +1,314 @@
+/*
+ * Plant Intelligence — MCU firmware (STM32U585, Arduino Core on Zephyr)
+ *
+ * The microcontroller owns everything real-time and safety-critical:
+ *   - relay control (fan / solenoid valve / pump) with safe sequencing
+ *   - DHT11 temperature & humidity
+ *   - capacitive soil moisture on A0 (power-switched rail on D9)
+ *   - fan thermostat with hysteresis (works even if Linux is down)
+ *   - dead-man failsafe: if the Linux side goes silent, water on a
+ *     conservative timer so the garden never depends on the MPU being up
+ *
+ * The Linux side (python/) decides WHEN and HOW LONG to water.
+ * This side decides WHETHER IT IS SAFE TO and does the actual switching.
+ *
+ * RPC surface (Bridge):
+ *   provided (callable from Python):
+ *     start_watering(int duration_ms)  — begin a watering cycle (clamped to hard cap)
+ *     stop_watering()                  — graceful stop (pump first, then valve)
+ *     ping()                           — heartbeat; feeds the dead-man timer
+ *     set_failsafe(int hours)          — silence threshold before autonomous watering
+ *   notified (pushed to Python):
+ *     on_temperature(float °C)   every TELEMETRY_MS
+ *     on_humidity(float %)       every TELEMETRY_MS
+ *     on_soil(int raw ADC)       every TELEMETRY_MS (-1 until first valid read)
+ *     on_state(int)              watering state machine state
+ *     on_seconds_left(int)       remaining watering time, 0 when idle
+ *     on_event(int)              event codes below
+ *
+ * Event codes:
+ *   1 watering started (commanded)     5 watering rejected: too soon after last
+ *   2 watering ended (normal)          6 failsafe watering started
+ *   3 watering stopped (commanded)     7 fan on
+ *   4 watering rejected: already active 8 fan off
+ *   9 DHT read failing (persistent)
+ */
+
+#include "Arduino_RouterBridge.h"
+
+// ---------------------------------------------------------------- pins
+// 4-channel relay module, ACTIVE LOW (LOW = energized), as on the old rig.
+const int PIN_RELAY_FAN   = 4;  // IN1
+const int PIN_RELAY_VALVE = 5;  // IN2 — solenoid valve
+const int PIN_RELAY_PUMP  = 6;  // IN3 — 12 V diaphragm pump
+// IN4 spare
+const int PIN_DHT         = 8;  // DHT11 data
+const int PIN_SOIL        = A0; // capacitive probe, MUST be powered from 3.3 V
+const int PIN_SOIL_RAIL   = 9;  // MOSFET gate switching the sensor supply rail
+
+const bool RELAY_ON  = LOW;
+const bool RELAY_OFF = HIGH;
+
+// ---------------------------------------------------------------- tuning
+// Pump sequencing (protects the 12 V supply from inrush, limits water hammer)
+const unsigned long VALVE_LEAD_MS  = 750;   // valve open before pump start
+const unsigned long PUMP_TRAIL_MS  = 1000;  // pump off before valve close
+
+// Hard safety limits, enforced HERE regardless of what Linux asks for
+const unsigned long MAX_WATERING_MS      = 10UL * 60UL * 1000UL; // 10 min cap
+const unsigned long MIN_GAP_AFTER_END_MS = 60UL * 1000UL;        // 1 min between cycles
+
+// Dead-man failsafe: if Linux is silent this long, water autonomously.
+unsigned long failsafeSilenceMs          = 14UL * 60UL * 60UL * 1000UL; // 14 h
+const unsigned long FAILSAFE_DURATION_MS = 5UL * 60UL * 1000UL;  // 5 min (old fixed schedule)
+const unsigned long FAILSAFE_MIN_GAP_MS  = 10UL * 60UL * 60UL * 1000UL; // 10 h between failsafe runs
+
+// Fan thermostat (from the previous system's tuning)
+const float FAN_ON_TEMP  = 38.0;
+const float FAN_OFF_TEMP = 36.5;
+
+const unsigned long TELEMETRY_MS   = 5000;
+const unsigned long DHT_PERIOD_MS  = 10000; // DHT11 max ~0.5 Hz; read every 10 s
+const unsigned long SOIL_RAIL_WARMUP_MS = 150; // capacitive oscillator settle time
+
+// ---------------------------------------------------------------- state
+enum WaterState { W_IDLE = 0, W_VALVE_OPENING = 1, W_PUMPING = 2, W_CLOSING = 3 };
+
+WaterState waterState = W_IDLE;
+unsigned long stateEnteredMs   = 0;
+unsigned long wateringEndMs    = 0;   // when pumping should stop
+unsigned long lastWateringEnd  = 0;   // millis at last completed cycle (0 = never)
+bool everWatered = false;
+
+unsigned long lastPingMs        = 0;
+unsigned long lastFailsafeRunMs = 0;
+bool everPinged = false, everFailsafed = false;
+
+float lastTemp = NAN, lastHum = NAN;
+int   dhtFailStreak = 0;
+int   lastSoilRaw = -1;
+bool  fanOn = false;
+
+unsigned long lastTelemetryMs = 0, lastDhtMs = 0;
+bool soilRailOn = false;
+unsigned long soilRailOnMs = 0;
+
+// ---------------------------------------------------------------- helpers
+void notifyEvent(int code) { Bridge.notify("on_event", code); }
+
+void setWaterState(WaterState s) {
+  waterState = s;
+  stateEnteredMs = millis();
+  Bridge.notify("on_state", (int)s);
+}
+
+// Minimal DHT11 bit-bang read — no library dependency, so nothing to break
+// on the Zephyr core. Returns true and fills temp/hum on success.
+bool readDHT11(float &temp, float &hum) {
+  uint8_t data[5] = {0};
+
+  pinMode(PIN_DHT, OUTPUT);
+  digitalWrite(PIN_DHT, LOW);
+  delay(20);                       // >18 ms start signal
+  digitalWrite(PIN_DHT, HIGH);
+  delayMicroseconds(35);
+  pinMode(PIN_DHT, INPUT);
+
+  // Sensor response: ~80 µs low, ~80 µs high
+  unsigned long t0 = micros();
+  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 100) return false; }
+  t0 = micros();
+  while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 100) return false; }
+  t0 = micros();
+  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 100) return false; }
+
+  // 40 data bits: 50 µs low, then ~27 µs high = 0, ~70 µs high = 1
+  for (int i = 0; i < 40; i++) {
+    t0 = micros();
+    while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 80)  return false; }
+    unsigned long hiStart = micros();
+    while (digitalRead(PIN_DHT) == HIGH) { if (micros() - hiStart > 100) return false; }
+    data[i / 8] <<= 1;
+    if (micros() - hiStart > 45) data[i / 8] |= 1;
+  }
+
+  if ((uint8_t)(data[0] + data[1] + data[2] + data[3]) != data[4]) return false;
+  hum  = data[0];         // DHT11: integer humidity
+  temp = data[2];         // integer temperature; data[3] is decimal on some units
+  if (data[3] < 10) temp += data[3] * 0.1;
+  return true;
+}
+
+int readSoilMedian() {
+  int v[5];
+  for (int i = 0; i < 5; i++) { v[i] = analogRead(PIN_SOIL); delay(2); }
+  // insertion sort, take middle
+  for (int i = 1; i < 5; i++) {
+    int k = v[i], j = i - 1;
+    while (j >= 0 && v[j] > k) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = k;
+  }
+  return v[2];
+}
+
+// ---------------------------------------------------------------- watering
+bool beginWatering(unsigned long durationMs, bool failsafe) {
+  if (waterState != W_IDLE) { notifyEvent(4); return false; }
+  if (everWatered && millis() - lastWateringEnd < MIN_GAP_AFTER_END_MS) {
+    notifyEvent(5);
+    return false;
+  }
+  if (durationMs > MAX_WATERING_MS) durationMs = MAX_WATERING_MS;
+  if (durationMs < 1000) durationMs = 1000;
+
+  digitalWrite(PIN_RELAY_VALVE, RELAY_ON);
+  setWaterState(W_VALVE_OPENING);
+  wateringEndMs = millis() + VALVE_LEAD_MS + durationMs;
+  notifyEvent(failsafe ? 6 : 1);
+  Monitor.print("Watering start, ms=");
+  Monitor.println(durationMs);
+  return true;
+}
+
+void finishToClosing(int eventCode) {
+  digitalWrite(PIN_RELAY_PUMP, RELAY_OFF);
+  setWaterState(W_CLOSING);
+  notifyEvent(eventCode);
+}
+
+void serviceWatering() {
+  unsigned long now = millis();
+  switch (waterState) {
+    case W_IDLE:
+      break;
+    case W_VALVE_OPENING:
+      if (now - stateEnteredMs >= VALVE_LEAD_MS) {
+        digitalWrite(PIN_RELAY_PUMP, RELAY_ON);
+        setWaterState(W_PUMPING);
+      }
+      break;
+    case W_PUMPING:
+      if (now >= wateringEndMs) finishToClosing(2); // normal end
+      break;
+    case W_CLOSING:
+      if (now - stateEnteredMs >= PUMP_TRAIL_MS) {
+        digitalWrite(PIN_RELAY_VALVE, RELAY_OFF);
+        lastWateringEnd = now;
+        everWatered = true;
+        setWaterState(W_IDLE);
+      }
+      break;
+  }
+}
+
+// ---------------------------------------------------------------- RPC
+void rpc_start_watering(int durationMs) { beginWatering((unsigned long)durationMs, false); }
+
+void rpc_stop_watering() {
+  if (waterState == W_VALVE_OPENING) {           // pump never started
+    digitalWrite(PIN_RELAY_VALVE, RELAY_OFF);
+    lastWateringEnd = millis();
+    everWatered = true;
+    setWaterState(W_IDLE);
+    notifyEvent(3);
+  } else if (waterState == W_PUMPING) {
+    finishToClosing(3);
+  }
+}
+
+void rpc_ping() { lastPingMs = millis(); everPinged = true; }
+
+void rpc_set_failsafe(int hours) {
+  if (hours >= 6 && hours <= 72)
+    failsafeSilenceMs = (unsigned long)hours * 60UL * 60UL * 1000UL;
+}
+
+// ---------------------------------------------------------------- setup/loop
+void setup() {
+  pinMode(PIN_RELAY_FAN, OUTPUT);
+  pinMode(PIN_RELAY_VALVE, OUTPUT);
+  pinMode(PIN_RELAY_PUMP, OUTPUT);
+  digitalWrite(PIN_RELAY_FAN, RELAY_OFF);
+  digitalWrite(PIN_RELAY_VALVE, RELAY_OFF);
+  digitalWrite(PIN_RELAY_PUMP, RELAY_OFF);
+
+  pinMode(PIN_SOIL_RAIL, OUTPUT);
+  digitalWrite(PIN_SOIL_RAIL, LOW);   // sensor rail off between reads
+
+  Monitor.begin(115200);
+  Bridge.begin();
+  Bridge.provide("start_watering", rpc_start_watering);
+  Bridge.provide("stop_watering",  rpc_stop_watering);
+  Bridge.provide("ping",           rpc_ping);
+  Bridge.provide("set_failsafe",   rpc_set_failsafe);
+
+  lastPingMs = millis(); // grace period from boot
+  Monitor.println("Plant Intelligence MCU ready");
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  serviceWatering();
+
+  // --- DHT11 + fan thermostat -------------------------------------------
+  if (now - lastDhtMs >= DHT_PERIOD_MS) {
+    lastDhtMs = now;
+    float t, h;
+    if (readDHT11(t, h)) {
+      lastTemp = t; lastHum = h; dhtFailStreak = 0;
+      if (!fanOn && t > FAN_ON_TEMP) {
+        digitalWrite(PIN_RELAY_FAN, RELAY_ON);  fanOn = true;  notifyEvent(7);
+      } else if (fanOn && t < FAN_OFF_TEMP) {
+        digitalWrite(PIN_RELAY_FAN, RELAY_OFF); fanOn = false; notifyEvent(8);
+      }
+    } else if (++dhtFailStreak == 6) {          // ~1 min of failures
+      notifyEvent(9);
+      dhtFailStreak = 0;
+    }
+  }
+
+  // --- soil: two-phase read with switched rail ---------------------------
+  if (!soilRailOn && now - lastTelemetryMs >= TELEMETRY_MS - SOIL_RAIL_WARMUP_MS) {
+    digitalWrite(PIN_SOIL_RAIL, HIGH);          // energize, let oscillator settle
+    soilRailOn = true;
+    soilRailOnMs = now;
+  }
+
+  // --- telemetry ----------------------------------------------------------
+  if (now - lastTelemetryMs >= TELEMETRY_MS) {
+    lastTelemetryMs = now;
+    if (soilRailOn && now - soilRailOnMs >= SOIL_RAIL_WARMUP_MS) {
+      lastSoilRaw = readSoilMedian();
+    }
+    digitalWrite(PIN_SOIL_RAIL, LOW);
+    soilRailOn = false;
+
+    if (!isnan(lastTemp)) Bridge.notify("on_temperature", lastTemp);
+    if (!isnan(lastHum))  Bridge.notify("on_humidity",  lastHum);
+    Bridge.notify("on_soil", lastSoilRaw);
+    Bridge.notify("on_state", (int)waterState);
+    int secsLeft = 0;
+    if (waterState == W_VALVE_OPENING || waterState == W_PUMPING) {
+      long d = (long)(wateringEndMs - now);
+      secsLeft = d > 0 ? (int)(d / 1000) : 0;
+    }
+    Bridge.notify("on_seconds_left", secsLeft);
+  }
+
+  // --- dead-man failsafe --------------------------------------------------
+  // If Linux has been silent past the threshold, water on a conservative
+  // timer. Uses ping silence, not wall-clock: no RTC/NTP needed here.
+  unsigned long sinceLastFailsafe = everFailsafed ? now - lastFailsafeRunMs : FAILSAFE_MIN_GAP_MS;
+  unsigned long sinceLastWaterEnd = everWatered   ? now - lastWateringEnd   : FAILSAFE_MIN_GAP_MS;
+  if (now - lastPingMs >= failsafeSilenceMs &&
+      waterState == W_IDLE &&
+      sinceLastFailsafe >= FAILSAFE_MIN_GAP_MS &&
+      sinceLastWaterEnd >= FAILSAFE_MIN_GAP_MS) {
+    if (beginWatering(FAILSAFE_DURATION_MS, true)) {
+      lastFailsafeRunMs = now;
+      everFailsafed = true;
+      lastPingMs = now; // rate-limit: re-arm the silence window
+    }
+  }
+}

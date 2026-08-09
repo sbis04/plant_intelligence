@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local data (lives on the board, not in git)
+*.db
+*.db-wal
+*.db-shm
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# iOS (expanded when the Xcode project lands)
+mobile/ios/**/xcuserdata/
+mobile/ios/**/DerivedData/

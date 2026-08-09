@@ -42,6 +42,10 @@ def register(ui, ctx):
             "plan": ctx.current_plan.to_dict() if ctx.current_plan else None,
             "weather": ctx.current_weather.to_dict() if ctx.current_weather else None,
             "location": _location(ctx),
+            "assistant": {
+                "cloud_configured": bool(ctx.config.cloud_llm_api_key),
+                "last_backend": ctx.assistant.last_backend if ctx.assistant else None,
+            },
         }
 
     def history():
@@ -52,7 +56,11 @@ def register(ui, ctx):
 
     def get_config():
         from dataclasses import asdict
-        return {"config": asdict(ctx.config)}
+        cfg = asdict(ctx.config)
+        # Never hand secrets back out over the LAN — report presence only.
+        for secret in ("camera_password", "cloud_llm_api_key"):
+            cfg[secret] = bool(cfg.get(secret))
+        return {"config": cfg}
 
     def water(duration_s: Optional[int] = None):
         duration = duration_s if duration_s else ctx.config.base_duration_s
@@ -152,6 +160,19 @@ def register(ui, ctx):
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={"Cache-Control": "no-store"})
 
+    def assistant_config(api_key: str = "", model: str = ""):
+        """Set (or clear, with an empty api_key) the cloud model for the
+        assistant. The key is persisted only on the board."""
+        ctx.config.cloud_llm_api_key = api_key.strip()
+        if model.strip():
+            ctx.config.cloud_llm_model = model.strip()
+        ctx.config.save()
+        ctx.store.log("SYSTEM",
+                      f"Assistant cloud model set ({ctx.config.cloud_llm_model})"
+                      if ctx.config.cloud_llm_api_key else
+                      "Assistant cloud model removed — on-device only")
+        return {"accepted": True}
+
     def camera_config(rtsp_url: str, username: str = "", password: str = ""):
         ctx.config.camera_rtsp_url = rtsp_url.strip()
         ctx.config.camera_username = username
@@ -164,6 +185,7 @@ def register(ui, ctx):
     ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)
     ui.expose_api("GET", "/api/camera/stream", camera_stream)
     ui.expose_api("POST", "/api/camera/config", camera_config)
+    ui.expose_api("POST", "/api/assistant/config", assistant_config)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
     def chat(message: str):

@@ -1,8 +1,10 @@
 """On-board AI assistant.
 
-A local LLM (llama.cpp on the UNO Q's Linux side — no cloud, no API key)
-that answers questions about the garden, grounded in a fresh snapshot of
-everything the hub knows on every request.
+Hybrid: with an API key configured, questions go to Gemini Flash (fast,
+smart) whenever the internet is reachable; the local LLM (llama.cpp on the
+UNO Q's Linux side — no cloud, no key) answers whenever it isn't. Both are
+grounded in the same fresh snapshot of everything the hub knows, composed
+per request.
 
 Robustness note: Gemma's chat template hard-rejects conversations that are
 not strictly user/assistant alternating — a separate system role, or any
@@ -14,6 +16,7 @@ together. No system role, no server-side memory — nothing to get poisoned.
 
 import json
 import threading
+import urllib.request
 from collections import deque
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -54,6 +57,7 @@ class Assistant:
             max_tokens=280,
         )
         self.history: deque = deque(maxlen=3)   # (question, answer)
+        self.last_backend = "local"
         # The brick allows one generation at a time; concurrent requests
         # (dashboard + phone) queue here instead of erroring.
         self._lock = threading.Lock()
@@ -133,10 +137,77 @@ class Assistant:
         except Exception:
             pass
 
+    # ---- cloud (Gemini Flash) ----------------------------------------------
+    def _cloud_request(self, path: str, composed: str):
+        cfg = self.ctx.config
+        body = json.dumps({
+            "contents": [{"parts": [{"text": composed}]}],
+            # Generous cap: Gemini's hidden thinking tokens count against
+            # this limit, and a tight one truncates the visible answer.
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192},
+        }).encode()
+        req = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{cfg.cloud_llm_model}:{path}",
+            data=body, method="POST",
+            headers={"Content-Type": "application/json",
+                     "x-goog-api-key": cfg.cloud_llm_api_key})
+        # The short timeout doubles as the "is the internet up?" check.
+        return urllib.request.urlopen(req, timeout=15)
+
+    def _cloud_stream(self, composed: str):
+        """Yield text chunks from Gemini's SSE stream. Raises on failure —
+        the caller falls back to the local model."""
+        with self._cloud_request("streamGenerateContent?alt=sse", composed) as r:
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    data = json.loads(line[5:].strip())
+                    for part in data["candidates"][0]["content"]["parts"]:
+                        if part.get("text"):
+                            yield part["text"]
+                except (KeyError, IndexError, ValueError):
+                    continue
+
+    def _cloud_ask(self, composed: str) -> str:
+        with self._cloud_request("generateContent", composed) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+        return "".join(p.get("text", "")
+                       for p in data["candidates"][0]["content"]["parts"])
+
+    # ---- ask ----------------------------------------------------------------
     def ask_stream(self, question: str):
-        """Yield the reply incrementally as the model generates it."""
+        """Yield the reply incrementally: cloud first when a key is set,
+        on-device model when the cloud is unreachable."""
         composed = self._compose(question)
         with self._lock:
+            if self.ctx.config.cloud_llm_api_key:
+                collected = []
+                try:
+                    for text in self._cloud_stream(composed):
+                        collected.append(text)
+                        yield text
+                    self.last_backend = "cloud"
+                    self.history.append((question, "".join(collected)))
+                    return
+                except GeneratorExit:
+                    raise
+                except Exception as e:
+                    if collected:   # died mid-reply: don't restart locally
+                        self.last_backend = "cloud"
+                        self.history.append((question, "".join(collected)))
+                        yield "\n[cloud connection lost]"
+                        return
+                    # never produced a byte — offline or bad key: go local
+                    try:
+                        self.ctx.store.log(
+                            "SYSTEM", f"Cloud model unreachable ({type(e).__name__}), answering on-device")
+                    except Exception:
+                        pass
+
+            self.last_backend = "local"
             self._fresh_turn()
             collected = []
             try:
@@ -155,9 +226,19 @@ class Assistant:
             self.history.append((question, "".join(collected)))
 
     def ask(self, question: str) -> str:
+        composed = self._compose(question)
         with self._lock:
+            if self.ctx.config.cloud_llm_api_key:
+                try:
+                    reply = self._cloud_ask(composed)
+                    self.last_backend = "cloud"
+                    self.history.append((question, reply))
+                    return reply
+                except Exception:
+                    pass
+            self.last_backend = "local"
             self._fresh_turn()
-            reply = self.llm.chat(self._compose(question))
+            reply = self.llm.chat(composed)
             self.history.append((question, reply))
             return reply
 

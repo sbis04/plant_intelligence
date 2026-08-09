@@ -69,6 +69,13 @@ class Config:
     camera_username: str = ""
     camera_password: str = ""
 
+    # --- assistant (hybrid) --------------------------------------------------
+    # With an API key set, questions go to Gemini Flash whenever the internet
+    # is reachable — the on-device model stays as the offline fallback. The
+    # key lives only in hub/data/config.json on the board (gitignored).
+    cloud_llm_api_key: str = ""
+    cloud_llm_model: str = "gemini-flash-latest"   # evergreen alias, never stale
+
     # --- failsafe ----------------------------------------------------------------
     failsafe_silence_h: int = 14         # MCU waters on its own after this silence
 

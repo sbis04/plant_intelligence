@@ -95,7 +95,12 @@ def register(ui, ctx):
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("GET", "/api/history", history)
     ui.expose_api("GET", "/api/logs", logs)
+    def system():
+        import system_stats
+        return {"system": system_stats.snapshot()}
+
     ui.expose_api("GET", "/api/config", get_config)
+    ui.expose_api("GET", "/api/system", system)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
     def chat(message: str):
@@ -109,6 +114,23 @@ def register(ui, ctx):
         except Exception as e:  # model still loading, runner down, etc.
             return {"reply": None, "error": str(e)}
 
+    def chat_stream(message: str):
+        """Streamed variant: chunked plain text as the model generates.
+        Consumed by the dashboard (fetch reader) and the iOS app
+        (URLSession.bytes)."""
+        from fastapi.responses import StreamingResponse
+
+        def gen():
+            if not ctx.assistant:
+                yield "The assistant isn't available on this hub."
+                return
+            try:
+                yield from ctx.assistant.ask_stream(message)
+            except Exception as e:
+                yield f"\n[assistant error: {e}]"
+
+        return StreamingResponse(gen(), media_type="text/plain; charset=utf-8")
+
     def chat_reset():
         if ctx.assistant:
             ctx.assistant.reset()
@@ -116,6 +138,7 @@ def register(ui, ctx):
 
     ui.expose_api("POST", "/api/location", set_location)
     ui.expose_api("POST", "/api/chat", chat)
+    ui.expose_api("POST", "/api/chat/stream", chat_stream)
     ui.expose_api("POST", "/api/chat/reset", chat_reset)
 
     # WebSocket commands (the dashboard uses these; the app may too)

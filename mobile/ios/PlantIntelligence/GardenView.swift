@@ -13,7 +13,7 @@ struct GardenView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     HStack(alignment: .center) {
-                        Text("Garden")
+                        Text("Plants")
                             .font(.largeTitle.weight(.bold))
                         Spacer()
                         LinkBadge(link: app.link)

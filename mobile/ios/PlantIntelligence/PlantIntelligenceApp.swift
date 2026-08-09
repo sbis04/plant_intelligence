@@ -21,7 +21,7 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            Tab("Garden", systemImage: "leaf.fill", value: 0) {
+            Tab("Plants", systemImage: "leaf.fill", value: 0) {
                 GardenView()
             }
             Tab("Assistant", systemImage: "sparkles", value: 1) {

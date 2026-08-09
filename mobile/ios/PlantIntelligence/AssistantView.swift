@@ -139,12 +139,12 @@ struct AssistantOverlay: View {
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Theme.line)
-                            .frame(width: 160, height: 110)
+                            .frame(width: 90, height: 68)
                     }
-                    .frame(maxWidth: 220, maxHeight: 300)
-                    .clipShape(.rect(cornerRadius: 10))
+                    .frame(maxWidth: 130, maxHeight: 110)
+                    .clipShape(.rect(cornerRadius: 8))
                 }
                 Text(msg.text)
                     .font(.subheadline)

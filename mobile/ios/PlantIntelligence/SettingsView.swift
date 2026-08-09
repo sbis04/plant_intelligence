@@ -150,7 +150,6 @@ struct SettingsView: View {
             }
             .background(GardenBackground())
             .topEdgeFade()
-            .toolbar(.hidden, for: .navigationBar)
             .onAppear { address = app.hubAddress }
         }
     }

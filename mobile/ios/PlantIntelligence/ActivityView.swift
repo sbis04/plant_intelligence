@@ -38,7 +38,6 @@ struct ActivityView: View {
             }
             .background(GardenBackground())
             .topEdgeFade()
-            .toolbar(.hidden, for: .navigationBar)
             .refreshable { await app.refreshActivity() }
             .task { await app.refreshActivity() }
         }

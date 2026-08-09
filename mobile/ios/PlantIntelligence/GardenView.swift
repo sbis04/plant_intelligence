@@ -34,7 +34,6 @@ struct GardenView: View {
             }
             .background(GardenBackground())
             .topEdgeFade()
-            .toolbar(.hidden, for: .navigationBar)
             .overlay {
                 if app.assistantOpen {
                     AssistantOverlay()
@@ -264,7 +263,7 @@ struct GardenView: View {
         .background {
             // Extra frosting: a material layer under the tint deepens the
             // blur of whatever scrolls behind the glass.
-            Capsule().fill(.thinMaterial)
+            Capsule().fill(.ultraThinMaterial)
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
                 let t = context.date.timeIntervalSinceReferenceDate
                 MeshGradient(

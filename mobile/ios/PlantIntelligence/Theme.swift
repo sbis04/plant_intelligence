@@ -13,15 +13,13 @@ enum Theme {
 }
 
 extension View {
-    /// The system's progressive top-edge blur on pages that hide the
-    /// navigation bar: an empty safe-area bar gives the scroll edge effect
-    /// something to attach to, and .soft renders the native gradient blur.
+    /// The system's progressive top-edge blur: an empty inline navigation
+    /// bar is invisible at rest but gives the native scroll edge effect
+    /// something to render under once content scrolls beneath it.
     func topEdgeFade() -> some View {
         self
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .safeAreaBar(edge: .top, spacing: 0) {
-                Color.clear.frame(height: 1)
-            }
+            .toolbarTitleDisplayMode(.inline)
     }
 }
 

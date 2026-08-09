@@ -198,6 +198,9 @@ class Assistant:
         composed = self._compose(question)
         with self._lock:
             if self.ctx.config.cloud_llm_api_key:
+                # Optimistically mark the attempt so clients polling status
+                # mid-generation see which backend is actually working.
+                self.last_backend = "cloud"
                 collected = []
                 try:
                     for text in self._cloud_stream(composed):

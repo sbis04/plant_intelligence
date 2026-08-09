@@ -126,8 +126,10 @@ struct AssistantOverlay: View {
 }
 
 /// Animated "the model is generating" indicator — worth having because
-/// on-device generation legitimately takes a minute or two.
+/// on-device generation legitimately takes a minute or two. Reads the
+/// backend from the status poll, which stays live mid-generation.
 struct ThinkingBubble: View {
+    @Environment(AppState.self) private var app
     @State private var phase = 0
     @State private var elapsed = 0
 
@@ -164,9 +166,13 @@ struct ThinkingBubble: View {
     }
 
     private var label: String {
+        let info = app.status?.assistant
+        let onDevice = info?.cloudConfigured != true || info?.lastBackend == "local"
         var text = "thinking… \(elapsed)s"
-        if elapsed > 20 { text += " — answering on-device" }
-        if elapsed > 75 { text += "; the first answer after a restart takes the longest" }
+        if onDevice {
+            text += " · on-device"
+            if elapsed > 75 { text += " — the first answer after a restart takes the longest" }
+        }
         return text
     }
 }

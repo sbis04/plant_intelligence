@@ -32,6 +32,8 @@ function render(data) {
 
   // assistant badge reflects the actual backend
   const ai = data.assistant || {};
+  assistantBackend = ai.cloud_configured
+    ? (ai.last_backend === "local" ? "local" : "cloud") : "local";
   $("assistant-chip").textContent = ai.cloud_configured
     ? (ai.last_backend === "local" ? "cloud · offline fallback" : "Gemini Flash")
     : "on-device LLM";
@@ -160,6 +162,7 @@ $("stop-btn").addEventListener("click", async () => {
 // ---- assistant ------------------------------------------------------------
 const chatBox = $("chat-messages");
 let chatBusy = false;
+let assistantBackend = "local";
 
 function addMsg(text, cls) {
   const empty = chatBox.querySelector(".chat-empty");
@@ -179,16 +182,17 @@ async function askAssistant(question) {
   $("chat-suggest").style.display = "none";
   addMsg(question, "user");
   const pending = addMsg("thinking…", "bot thinking");
-  // Honest waiting: the on-device fallback spends a while reading the live
-  // data before the first token — show elapsed time so a long wait doesn't
-  // look like a hang.
+  // Honest waiting: show elapsed time plus which backend is actually
+  // answering (the status poll keeps assistantBackend current even while
+  // a reply is being generated).
   const started = Date.now();
   const ticker = setInterval(() => {
     if (!pending.classList.contains("thinking")) return;
     const s = Math.round((Date.now() - started) / 1000);
-    pending.textContent = `thinking… ${s}s` +
-      (s > 20 ? " (answering on-device)" : "") +
-      (s > 75 ? " (first answer after a restart takes the longest)" : "");
+    const via = assistantBackend === "local" ? " · on-device" : "";
+    pending.textContent = `thinking… ${s}s${via}` +
+      (assistantBackend === "local" && s > 75
+        ? " (first answer after a restart takes the longest)" : "");
   }, 1000);
   try {
     const ctrl = new AbortController();

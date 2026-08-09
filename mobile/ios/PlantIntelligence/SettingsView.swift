@@ -6,6 +6,8 @@ struct SettingsView: View {
     @State private var testResult: String?
     @State private var place = ""
     @State private var locationResult: String?
+    @State private var apiKey = ""
+    @State private var assistantResult: String?
 
     var body: some View {
         @Bindable var app = app
@@ -72,6 +74,56 @@ struct SettingsView: View {
                             }
                         }
                         Text("A manually set location is remembered across hub reboots and never overwritten by auto-detection.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textMuted)
+                    }
+
+                    PanelCard(title: "Assistant") {
+                        let info = app.status?.assistant
+                        kv("Mode", info?.cloudConfigured == true
+                            ? "cloud when online, on-device offline"
+                            : "on-device only")
+                        if let backend = info?.lastBackend, info?.cloudConfigured == true {
+                            kv("Last answer from", backend == "cloud" ? "Gemini Flash" : "UNO Q")
+                        }
+                        SecureField("Gemini API key", text: $apiKey)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .padding(12)
+                            .background(Theme.bg, in: .rect(cornerRadius: 10))
+                        HStack {
+                            Button("Save key") {
+                                Task {
+                                    guard let client = app.client else { return }
+                                    let res = try? await client.setAssistantConfig(apiKey: apiKey)
+                                    assistantResult = res?.accepted == true ? "Saved ✓" : "failed"
+                                    if res?.accepted == true { apiKey = "" }
+                                    await app.refreshStatus()
+                                }
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                            if app.status?.assistant?.cloudConfigured == true {
+                                Button("Remove") {
+                                    Task {
+                                        guard let client = app.client else { return }
+                                        _ = try? await client.setAssistantConfig(apiKey: "")
+                                        assistantResult = "Removed — on-device only"
+                                        await app.refreshStatus()
+                                    }
+                                }
+                                .buttonStyle(.glass)
+                                .tint(Theme.err)
+                            }
+                            if let assistantResult {
+                                Text(assistantResult)
+                                    .font(.caption)
+                                    .foregroundStyle(
+                                        assistantResult.hasSuffix("✓") ? Theme.accent : Theme.textMuted)
+                            }
+                        }
+                        Text("With a key set, questions go to Gemini Flash whenever the internet is reachable and fall back to the on-device model when it isn't. The key is stored only on the hub, never in the app. Free keys: aistudio.google.com")
                             .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                     }

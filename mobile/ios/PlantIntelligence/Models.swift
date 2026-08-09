@@ -7,6 +7,17 @@ struct StatusResponse: Codable {
     var plan: Plan?
     var weather: Weather?
     var location: HubLocation?
+    var assistant: AssistantInfo?
+}
+
+struct AssistantInfo: Codable {
+    var cloudConfigured: Bool?
+    var lastBackend: String?
+
+    enum CodingKeys: String, CodingKey {
+        case cloudConfigured = "cloud_configured"
+        case lastBackend = "last_backend"
+    }
 }
 
 struct DeviceStatus: Codable {

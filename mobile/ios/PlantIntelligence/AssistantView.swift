@@ -81,7 +81,7 @@ struct AssistantOverlay: View {
                 .foregroundStyle(Theme.accent)
             Text("Ask your garden anything")
                 .font(.headline)
-            Text("The model runs locally on the UNO Q with live access to every sensor, plan and log — no cloud involved.")
+            Text("Grounded in live access to every sensor, plan and log. Runs on the UNO Q itself — or via a cloud model when one is configured in Settings.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
@@ -164,8 +164,9 @@ struct ThinkingBubble: View {
     }
 
     private var label: String {
-        var text = "thinking on-device… \(elapsed)s"
-        if elapsed > 75 { text += " — first answer after a restart takes the longest" }
+        var text = "thinking… \(elapsed)s"
+        if elapsed > 20 { text += " — answering on-device" }
+        if elapsed > 75 { text += "; the first answer after a restart takes the longest" }
         return text
     }
 }

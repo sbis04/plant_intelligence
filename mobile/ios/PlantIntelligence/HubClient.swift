@@ -77,6 +77,11 @@ struct HubClient: Sendable {
                        as: SimpleResponse.self)
     }
 
+    func setAssistantConfig(apiKey: String) async throws -> SimpleResponse {
+        try await post("/api/assistant/config", query: ["api_key": apiKey],
+                       as: SimpleResponse.self)
+    }
+
     /// On-device LLM: generation on the UNO Q takes a while — long timeout.
     func chat(message: String) async throws -> ChatResponse {
         try await post("/api/chat", query: ["message": message],

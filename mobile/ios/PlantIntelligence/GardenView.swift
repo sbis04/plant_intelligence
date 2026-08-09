@@ -20,8 +20,8 @@ struct GardenView: View {
                     }
                     .padding(.top, 8)
                     hero
-                    tiles
                     CameraCard()
+                    tiles
                     planCard
                     if let w = weather { weatherCard(w) }
                 }

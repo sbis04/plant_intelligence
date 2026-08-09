@@ -42,8 +42,14 @@ final class AppState {
     private var pollTask: Task<Void, Never>?
 
     init() {
-        hubAddress = UserDefaults.standard.string(forKey: "hubAddress")
-            ?? "192.168.68.64:7000"
+        let stored = UserDefaults.standard.string(forKey: "hubAddress")
+        // The board's mDNS name survives DHCP reassignments; migrate anyone
+        // still on the original hard-coded IP default.
+        if let stored, stored != "192.168.68.64:7000" {
+            hubAddress = stored
+        } else {
+            hubAddress = "plantintelligence.local:7000"
+        }
     }
 
     var client: HubClient? { HubClient(address: hubAddress) }

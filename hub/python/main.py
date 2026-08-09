@@ -157,7 +157,35 @@ def main():
     located = ctx.try_autolocate()
     ctx.recompute_plan()
 
-    last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0, "locate": time.time()}
+    last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0,
+            "locate": time.time(), "leds": 0.0}
+    led_state = {"mode": -1, "healthy": None}
+
+    def service_leds():
+        """Board lights: the matrix ambient mode (idle wave / rain hold /
+        assistant thinking) and LED1 = hub health (green ok, red when the
+        MCU has gone quiet). Pushed only on change."""
+        if ctx.assistant and ctx.assistant.busy:
+            mode = 2
+        elif ctx.current_plan and any("rain" in r for r in ctx.current_plan.reasons):
+            mode = 1
+        else:
+            mode = 0
+        if mode != led_state["mode"]:
+            led_state["mode"] = mode
+            try:
+                ctx.hardware.set_led_mode(mode)
+            except Exception:
+                led_state["mode"] = -1   # retry next tick
+        seen = ctx.hardware.snapshot().get("mcu_seen_seconds_ago")
+        healthy = seen is not None and seen < 180
+        if healthy != led_state["healthy"]:
+            led_state["healthy"] = healthy
+            try:
+                from arduino.app_utils import Leds
+                Leds.set_led1_color(0, 1, 0) if healthy else Leds.set_led1_color(1, 0, 0)
+            except Exception:
+                pass
 
     def loop():
         nonlocal located
@@ -166,6 +194,10 @@ def main():
         if now - last["ping"] >= 30:
             last["ping"] = now
             ctx.hardware.ping()
+
+        if now - last["leds"] >= 2:
+            last["leds"] = now
+            service_leds()
 
         # Retry auto-location hourly until it succeeds (e.g. boot before Wi-Fi).
         if not located and now - last["locate"] >= 3600:

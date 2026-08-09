@@ -99,8 +99,12 @@ unsigned long soilRailOnMs = 0;
 
 // ---------------------------------------------------------------- LED matrix
 // The 8x13 grid is the board's face: a sprout grows at boot, rain falls
-// while watering, and a single pixel breathes when idle. All procedural —
-// no frame tables — ticked non-blocking from loop().
+// while watering, a wave rolls when idle, sparse drops mark a rain hold
+// and sparkles show the assistant thinking. All procedural — no frame
+// tables — ticked non-blocking from loop(). The hub picks the ambient
+// mode over the Bridge; watering and boot always win.
+enum LedMode { LED_IDLE = 0, LED_RAIN_HOLD = 1, LED_THINKING = 2 };
+volatile int ledMode = LED_IDLE;
 Arduino_LED_Matrix matrix;
 uint8_t fb[104];                       // row-major 8x13 framebuffer, 0..7
 unsigned long lastAnimMs = 0;
@@ -134,11 +138,40 @@ void animRain(unsigned long) {         // drops falling while watering
     fb[c] = (random(100) < 14) ? 7 : 0;
 }
 
-void animIdle(unsigned long now) {     // slow breathing pixel, corner
+void animIdle(unsigned long now) {     // a slow water surface rolling by
   memset(fb, 0, sizeof(fb));
-  uint16_t t = (now / 24) % 256;                       // ~6 s cycle
-  uint8_t tri = t < 128 ? t : 255 - t;                 // triangle wave
-  px(7, 12, tri / 32);                                 // 0..3, easy on the eyes
+  float t = now / 900.0f;
+  for (int c = 0; c < 13; c++) {
+    // two superimposed waves pick the surface row per column
+    float y = 5.5f + 1.4f * sinf(c * 0.55f + t) + 0.7f * sinf(c * 1.3f - t * 0.6f);
+    int r = (int)y;
+    px(r, c, 4);                                       // crest
+    px(r + 1, c, 2);                                   // body
+    for (int rr = r + 2; rr < 8; rr++) px(rr, c, 1);   // depth
+  }
+  // a firefly drifting above the water
+  int fc = (int)(now / 1400) % 13;
+  uint8_t glow = (now / 200) % 2 ? 3 : 5;
+  px(1 + (int)(1.5f + 1.4f * sinf(t * 0.8f)), fc, glow);
+}
+
+void animRainHold(unsigned long) {     // sparse, lazy drops: rain expected
+  for (int r = 7; r > 0; r--)
+    for (int c = 0; c < 13; c++) {
+      uint8_t v = fb[(r - 1) * 13 + c];
+      fb[r * 13 + c] = v > 1 ? v - 1 : 0;
+    }
+  for (int c = 0; c < 13; c++)
+    fb[c] = (random(100) < 4) ? 5 : 0;
+}
+
+void animThinking(unsigned long) {     // sparkles while the model reasons
+  for (int i = 0; i < 104; i++) fb[i] = fb[i] > 1 ? fb[i] - 1 : 0;   // decay
+  if (random(100) < 55) {
+    int r = random(8), c = random(13);
+    px(r, c, 7);
+    px(r - 1, c, 2); px(r + 1, c, 2); px(r, c - 1, 2); px(r, c + 1, 2);
+  }
 }
 
 void serviceMatrix(unsigned long now) {
@@ -148,6 +181,8 @@ void serviceMatrix(unsigned long now) {
   if (booting)                                    animBoot(now);
   else if (waterState == W_PUMPING ||
            waterState == W_VALVE_OPENING)         animRain(now);
+  else if (ledMode == LED_THINKING)               animThinking(now);
+  else if (ledMode == LED_RAIN_HOLD)              animRainHold(now);
   else                                            animIdle(now);
   matrix.draw(fb);
 }
@@ -275,7 +310,31 @@ void rpc_stop_watering() {
   }
 }
 
-void rpc_ping() { lastPingMs = millis(); everPinged = true; }
+// ------------------------------------------------------------- RGB LEDs
+// Two MCU-owned status lights (active LOW). LED3 glows blue while water
+// is actually flowing; LED4 shows red while the DHT is failing and blips
+// green on every hub heartbeat — a glanceable "the link is alive".
+unsigned long led4PulseUntil = 0;
+
+void serviceRgb(unsigned long now) {
+  bool watering = waterState == W_VALVE_OPENING ||
+                  waterState == W_PUMPING ||
+                  waterState == W_CLOSING;
+  digitalWrite(LED3_B, watering ? LOW : HIGH);
+  digitalWrite(LED4_R, dhtFailing ? LOW : HIGH);
+  bool pulse = !dhtFailing && (long)(led4PulseUntil - now) > 0;
+  digitalWrite(LED4_G, pulse ? LOW : HIGH);
+}
+
+void rpc_ping() {
+  lastPingMs = millis();
+  everPinged = true;
+  led4PulseUntil = lastPingMs + 150;   // heartbeat blip
+}
+
+void rpc_set_led_mode(int mode) {
+  if (mode >= LED_IDLE && mode <= LED_THINKING) ledMode = mode;
+}
 
 void rpc_set_failsafe(int hours) {
   if (hours >= 6 && hours <= 72)
@@ -292,6 +351,10 @@ void setup() {
   digitalWrite(PIN_RELAY_PUMP, RELAY_OFF);
 
   pinMode(PIN_SOIL_RAIL, OUTPUT);
+
+  // RGB status LEDs, active LOW — all off
+  int rgb[] = {LED3_R, LED3_G, LED3_B, LED4_R, LED4_G, LED4_B};
+  for (int p : rgb) { pinMode(p, OUTPUT); digitalWrite(p, HIGH); }
   digitalWrite(PIN_SOIL_RAIL, LOW);   // sensor rail off between reads
 
   Monitor.begin(115200);
@@ -300,6 +363,7 @@ void setup() {
   Bridge.provide("stop_watering",  rpc_stop_watering);
   Bridge.provide("ping",           rpc_ping);
   Bridge.provide("set_failsafe",   rpc_set_failsafe);
+  Bridge.provide("set_led_mode",   rpc_set_led_mode);
 
   matrix.begin();
   matrix.setGrayscaleBits(3);
@@ -316,6 +380,7 @@ void loop() {
 
   serviceWatering();
   serviceMatrix(now);
+  serviceRgb(now);
 
   // --- DHT11 + fan thermostat -------------------------------------------
   if (now - lastDhtMs >= DHT_PERIOD_MS) {

@@ -105,6 +105,10 @@ class Hardware:
     def set_failsafe_hours(self, hours: int):
         Bridge.call("set_failsafe", int(hours))
 
+    def set_led_mode(self, mode: int):
+        """Ambient LED matrix mode: 0 idle, 1 rain hold, 2 thinking."""
+        Bridge.call("set_led_mode", int(mode))
+
     # ---- accessors --------------------------------------------------------------
     def on_event(self, listener: Callable[[str, str, bool], None]):
         """listener(machine_name, human_label, is_error)"""

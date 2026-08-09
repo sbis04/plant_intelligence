@@ -59,6 +59,7 @@ class Assistant:
             max_tokens=280,
         )
         self.last_backend = "local"
+        self.busy = False   # drives the board's "thinking" LED animation
         # The brick allows one generation at a time; concurrent requests
         # (dashboard + phone) queue here instead of erroring.
         self._lock = threading.Lock()
@@ -234,6 +235,15 @@ class Assistant:
         on-device model when the cloud is unreachable. The exchange is
         persisted to the thread, including a partial reply if the client
         disconnects mid-stream."""
+        self.busy = True
+        try:
+            yield from self._ask_stream(question, thread_id,
+                                        attachment, attachment_ref)
+        finally:
+            self.busy = False
+
+    def _ask_stream(self, question: str, thread_id: int,
+                    attachment: bytes = None, attachment_ref: str = ""):
         if attachment:
             question_stored = question
             question = (question +
@@ -289,6 +299,13 @@ class Assistant:
             self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
 
     def ask(self, question: str, thread_id: int) -> str:
+        self.busy = True
+        try:
+            return self._ask(question, thread_id)
+        finally:
+            self.busy = False
+
+    def _ask(self, question: str, thread_id: int) -> str:
         composed = self._compose(question, thread_id)
         with self._lock:
             if self.ctx.config.cloud_llm_api_key:

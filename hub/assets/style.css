@@ -26,7 +26,8 @@ h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color
 
 .badge { font-size: 0.75rem; color: var(--muted); }
 .badge.ok { color: var(--accent); }
-.loc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.loc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; cursor: pointer; }
+.loc:hover { color: var(--text); text-decoration: underline; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }

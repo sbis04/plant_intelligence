@@ -66,13 +66,31 @@ def register(ui, ctx):
         ctx.store.log("OVERRIDE", "Manual stop requested via API")
         return {"accepted": True}
 
-    def set_location(latitude: float, longitude: float,
-                     source: str = "device", name: str = ""):
-        """Precise fix from a client — e.g. the mobile app sending phone GPS."""
+    def set_location(latitude: Optional[float] = None,
+                     longitude: Optional[float] = None,
+                     place: Optional[str] = None,
+                     source: str = "manual", name: str = ""):
+        """Set the garden's location.
+
+        Two forms: coordinates (?latitude=&longitude= — e.g. the mobile app
+        sending phone GPS, source=device) or a place name (?place=Siliguri —
+        geocoded server-side, source=manual). Persisted to config, so it
+        survives reboots; auto-detection never overrides it.
+        """
+        import location as loc_mod
+        if place:
+            resolved = loc_mod.geocode(place)
+            if not resolved:
+                return {"accepted": False, "error": f"could not find '{place}'"}
+            latitude, longitude, name = resolved
+        if latitude is None or longitude is None:
+            return {"accepted": False,
+                    "error": "provide place or latitude+longitude"}
         if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
             return {"accepted": False, "error": "coordinates out of range"}
         ctx.set_location(latitude, longitude, source=source, name=name)
-        return {"accepted": True, "latitude": latitude, "longitude": longitude}
+        return {"accepted": True, "latitude": latitude, "longitude": longitude,
+                "name": name}
 
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("GET", "/api/history", history)

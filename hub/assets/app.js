@@ -31,9 +31,9 @@ function render(data) {
   const loc = data.location || {};
 
   // header
-  $("location").textContent = loc.name
-    ? `${loc.name} · ${loc.source === "ip" ? "auto-located" : loc.source}`
-    : "location unknown";
+  const srcLabel = { ip: "auto-located", manual: "set manually", device: "from device" };
+  $("location").textContent =
+    (loc.name ? `${loc.name} · ${srcLabel[loc.source] || loc.source}` : "location unknown") + " ✎";
 
   // tiles
   $("soil").textContent = s.soil_pct != null ? fmtPct(s.soil_pct) : "no probe";
@@ -127,6 +127,19 @@ async function refreshLog() {
     });
   } catch { /* keep last rendering */ }
 }
+
+$("location").addEventListener("click", async () => {
+  const input = prompt("Garden location — place name, or \"lat, lon\":");
+  if (!input) return;
+  const coords = input.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  const params = coords
+    ? `latitude=${coords[1]}&longitude=${coords[2]}&source=manual&name=${encodeURIComponent(input.trim())}`
+    : `place=${encodeURIComponent(input.trim())}`;
+  const res = await fetch(`/api/location?${params}`, { method: "POST" });
+  const out = await res.json();
+  if (!out.accepted) alert(out.error || "could not set location");
+  refreshStatus();
+});
 
 $("water-btn").addEventListener("click", async () => {
   await fetch("/api/water", { method: "POST" });

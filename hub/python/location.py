@@ -11,6 +11,7 @@ Two keyless providers are tried in order; both fail soft.
 """
 
 import json
+import urllib.parse
 import urllib.request
 from typing import Optional, Tuple
 
@@ -23,6 +24,29 @@ _PROVIDERS = [
      "lat", "lon",
      lambda d: ", ".join(x for x in (d.get("city"), d.get("regionName")) if x)),
 ]
+
+
+def geocode(place: str, timeout_s: int = 10) -> Optional[Tuple[float, float, str]]:
+    """Resolve a place name to (latitude, longitude, display_name).
+
+    Uses Open-Meteo's keyless geocoding API — the same provider family the
+    forecast comes from, so a name that resolves here works there too.
+    """
+    try:
+        q = urllib.parse.quote(place.strip())
+        url = f"https://geocoding-api.open-meteo.com/v1/search?name={q}&count=1"
+        with urllib.request.urlopen(url, timeout=timeout_s) as r:
+            data = json.load(r)
+        results = data.get("results") or []
+        if not results:
+            return None
+        top = results[0]
+        name = ", ".join(
+            x for x in (top.get("name"), top.get("admin1"), top.get("country_code"))
+            if x)
+        return float(top["latitude"]), float(top["longitude"]), name
+    except Exception:
+        return None
 
 
 def detect(timeout_s: int = 10) -> Optional[Tuple[float, float, str]]:

@@ -4,77 +4,65 @@ This is the surface the mobile app talks to over the LAN, and it also backs
 the built-in dashboard in assets/. REST for request/response, a WebSocket
 "telemetry" event for live updates.
 
+The Brick wraps handlers in FastAPI, which builds the request contract from
+each function's signature — so handlers take exactly the parameters they
+expect (typed, with defaults for optional ones) and nothing else. Optional
+values arrive as query parameters: POST /api/water?duration_s=120.
+
 Endpoints:
   GET  /api/status    → live sensors, watering state, current plan, weather
-  GET  /api/history   → recent watering events (Firestore-shaped documents)
+  GET  /api/history   → recent watering events
   GET  /api/logs      → recent system log entries
   GET  /api/config    → active configuration
-  POST /api/water     → start a manual watering (default duration)
+  POST /api/water     → start a manual watering (?duration_s=, optional)
   POST /api/stop      → stop watering now
-
-Handlers take *args/**kwargs so they keep working whether or not the Brick
-passes request details positionally.
+  POST /api/location  → set coordinates (?latitude=&longitude=), e.g. phone GPS
 """
+
+from typing import Optional
 
 
 def register(ui, ctx):
     """Wire endpoints onto the WebUI brick. `ctx` is the AppContext from main."""
 
-    def status(*_a, **_k):
+    def status():
         snap = ctx.hardware.snapshot()
-        cfg = ctx.config
-        snap["soil_pct"] = cfg.soil_raw_to_pct(snap.get("soil_raw", -1))
+        snap["soil_pct"] = ctx.config.soil_raw_to_pct(snap.get("soil_raw", -1))
         return {
             "status": snap,
             "plan": ctx.current_plan.to_dict() if ctx.current_plan else None,
             "weather": ctx.current_weather.to_dict() if ctx.current_weather else None,
         }
 
-    def history(*_a, **_k):
+    def history():
         return {"history": ctx.store.recent_history(30)}
 
-    def logs(*_a, **_k):
+    def logs():
         return {"logs": ctx.store.recent_logs(50)}
 
-    def get_config(*_a, **_k):
+    def get_config():
         from dataclasses import asdict
         return {"config": asdict(ctx.config)}
 
-    def water(*args, **kwargs):
-        duration_s = ctx.config.base_duration_s
-        # Accept a duration if the transport handed us one, any shape.
-        for candidate in list(args) + [kwargs]:
-            if isinstance(candidate, dict) and "duration_s" in candidate:
-                try:
-                    duration_s = int(candidate["duration_s"])
-                except (TypeError, ValueError):
-                    pass
-        duration_s = max(ctx.config.min_duration_s,
-                         min(ctx.config.max_duration_s, duration_s))
-        ok = ctx.request_manual_watering(duration_s)
-        return {"accepted": ok, "duration_s": duration_s}
+    def water(duration_s: Optional[int] = None):
+        duration = duration_s if duration_s else ctx.config.base_duration_s
+        duration = max(ctx.config.min_duration_s,
+                       min(ctx.config.max_duration_s, duration))
+        ok = ctx.request_manual_watering(duration)
+        return {"accepted": ok, "duration_s": duration}
 
-    def stop(*_a, **_k):
+    def stop():
         ctx.hardware.stop_watering()
         ctx.store.log("OVERRIDE", "Manual stop requested via API")
         return {"accepted": True}
 
-    def set_location(*args, **kwargs):
+    def set_location(latitude: float, longitude: float,
+                     source: str = "device", name: str = ""):
         """Precise fix from a client — e.g. the mobile app sending phone GPS."""
-        payload = kwargs
-        for candidate in args:
-            if isinstance(candidate, dict):
-                payload = {**candidate, **payload}
-        try:
-            lat, lon = float(payload["latitude"]), float(payload["longitude"])
-        except (KeyError, TypeError, ValueError):
-            return {"accepted": False, "error": "latitude and longitude required"}
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
             return {"accepted": False, "error": "coordinates out of range"}
-        ctx.set_location(lat, lon,
-                         source=str(payload.get("source", "device")),
-                         name=str(payload.get("name", "")))
-        return {"accepted": True, "latitude": lat, "longitude": lon}
+        ctx.set_location(latitude, longitude, source=source, name=name)
+        return {"accepted": True, "latitude": latitude, "longitude": longitude}
 
     ui.expose_api("GET", "/api/status", status)
     ui.expose_api("GET", "/api/history", history)

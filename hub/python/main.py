@@ -164,10 +164,15 @@ def main():
         if now - last["samples"] >= 60:
             last["samples"] = now
             snap = ctx.hardware.snapshot()
-            if snap["temperature_c"] is not None:
-                ts.write_sample("temperature_c", snap["temperature_c"])
-            if snap["humidity_pct"] is not None:
-                ts.write_sample("humidity_pct", snap["humidity_pct"])
+            if snap["box_temperature_c"] is not None:
+                ts.write_sample("box_temperature_c", snap["box_temperature_c"])
+            if snap["box_humidity_pct"] is not None:
+                ts.write_sample("box_humidity_pct", snap["box_humidity_pct"])
+            w = ctx.current_weather
+            if w and w.temp_now_c is not None:
+                ts.write_sample("outside_temperature_c", w.temp_now_c)
+            if w and w.humidity_now_pct is not None:
+                ts.write_sample("outside_humidity_pct", w.humidity_now_pct)
             if snap["soil_raw"] >= 0:
                 ts.write_sample("soil_raw", snap["soil_raw"])
                 pct = ctx.config.soil_raw_to_pct(snap["soil_raw"])

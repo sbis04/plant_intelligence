@@ -22,6 +22,15 @@ Endpoints:
 from typing import Optional
 
 
+def _location(ctx) -> dict:
+    return {
+        "name": ctx.config.location_name,
+        "source": ctx.config.location_source,
+        "latitude": ctx.config.latitude,
+        "longitude": ctx.config.longitude,
+    }
+
+
 def register(ui, ctx):
     """Wire endpoints onto the WebUI brick. `ctx` is the AppContext from main."""
 
@@ -32,6 +41,7 @@ def register(ui, ctx):
             "status": snap,
             "plan": ctx.current_plan.to_dict() if ctx.current_plan else None,
             "weather": ctx.current_weather.to_dict() if ctx.current_weather else None,
+            "location": _location(ctx),
         }
 
     def history():
@@ -85,4 +95,5 @@ def push_telemetry(ui, ctx):
         "status": snap,
         "plan": ctx.current_plan.to_dict() if ctx.current_plan else None,
         "weather": ctx.current_weather.to_dict() if ctx.current_weather else None,
+        "location": _location(ctx),
     })

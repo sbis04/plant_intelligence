@@ -30,6 +30,8 @@ CACHE_TTL_S = 30 * 60
 class WeatherSummary:
     category: Optional[str] = None            # from the Brick, e.g. "SUNNY"
     description: Optional[str] = None
+    temp_now_c: Optional[float] = None        # current outside conditions
+    humidity_now_pct: Optional[float] = None
     temp_max_next12h: Optional[float] = None  # °C
     precip_prob_max_next12h: Optional[float] = None  # %
     is_raining_now: bool = False
@@ -39,6 +41,8 @@ class WeatherSummary:
         return {
             "category": self.category,
             "description": self.description,
+            "temp_now_c": self.temp_now_c,
+            "humidity_now_pct": self.humidity_now_pct,
             "temp_max_next12h": self.temp_max_next12h,
             "precip_prob_max_next12h": self.precip_prob_max_next12h,
             "is_raining_now": self.is_raining_now,
@@ -85,11 +89,15 @@ class WeatherService:
             url = (
                 "https://api.open-meteo.com/v1/forecast"
                 f"?latitude={self.lat}&longitude={self.lon}"
+                "&current=temperature_2m,relative_humidity_2m"
                 "&hourly=temperature_2m,precipitation_probability"
                 f"&forecast_hours={hours}&timezone=auto"
             )
             with urllib.request.urlopen(url, timeout=10) as r:
                 data = json.load(r)
+            current = data.get("current") or {}
+            summary.temp_now_c = current.get("temperature_2m")
+            summary.humidity_now_pct = current.get("relative_humidity_2m")
             temps = data.get("hourly", {}).get("temperature_2m") or []
             probs = data.get("hourly", {}).get("precipitation_probability") or []
             if temps:

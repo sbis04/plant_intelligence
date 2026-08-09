@@ -37,6 +37,7 @@ class Hardware:
         self._soil_raw: int = -1
         self._state: int = 0
         self._seconds_left: int = 0
+        self._fan_on: bool = False
         self._last_seen: float = 0.0
         self._event_listeners: list[Callable[[str, bool], None]] = []
 
@@ -78,6 +79,9 @@ class Hardware:
 
     def _on_event(self, code: int):
         name, is_error = EVENTS.get(int(code), (f"unknown_event_{code}", True))
+        if name in ("fan_on", "fan_off"):
+            with self._lock:
+                self._fan_on = name == "fan_on"
         for listener in list(self._event_listeners):
             try:
                 listener(name, is_error)
@@ -105,8 +109,10 @@ class Hardware:
     def snapshot(self) -> dict:
         with self._lock:
             return {
-                "temperature_c": self._temp,
-                "humidity_pct": self._hum,
+                # DHT11 lives inside the control box; the fan cools the box.
+                "box_temperature_c": self._temp,
+                "box_humidity_pct": self._hum,
+                "fan_on": self._fan_on,
                 "soil_raw": self._soil_raw,
                 "watering_state": STATES.get(self._state, "unknown"),
                 "watering_seconds_left": self._seconds_left,

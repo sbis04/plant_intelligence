@@ -114,14 +114,18 @@ inline void px(int r, int c, uint8_t v) {
   if (r >= 0 && r < 8 && c >= 0 && c < 13) fb[r * 13 + c] = v;
 }
 
-void animBoot(unsigned long now) {     // sprout grows from the soil
+void animBoot(unsigned long now) {     // sprout grows from a layered soil bed
   unsigned long t = now - bootAnimStart;
   memset(fb, 0, sizeof(fb));
-  for (int c = 0; c < 13; c++) px(7, c, 1);          // soil line
+  for (int c = 0; c < 13; c++) {       // two soil lines + a faint surface
+    px(7, c, 3);
+    px(6, c, 2);
+    px(5, c, 1);
+  }
   int h = t / 220;                                    // stem height over time
-  for (int r = 6; r >= 7 - h && r >= 2; r--) px(r, 6, 6);
-  if (h >= 3) { px(4, 5, 4); px(4, 7, 4); }           // first leaves
-  if (h >= 4) { px(3, 4, 3); px(3, 8, 3); px(2, 6, 7); } // crown
+  for (int r = 4; r >= 5 - h && r >= 0; r--) px(r, 6, 6);
+  if (h >= 3) { px(2, 5, 4); px(2, 7, 4); }           // first leaves
+  if (h >= 4) { px(1, 4, 3); px(1, 8, 3); px(0, 6, 7); } // crown
   if (t > 2600) {                                     // fade out, hand to idle
     uint8_t fade = min(7UL, (t - 2600) / 120);
     for (int i = 0; i < 104; i++) fb[i] = fb[i] > fade ? fb[i] - fade : 0;

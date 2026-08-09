@@ -271,6 +271,10 @@ async function refreshSystem() {
 }
 
 // ---- garden camera ----------------------------------------------------------
+// Ambient refresh is once a minute (each fetch is an RTSP round-trip to the
+// camera); while the enlarged dialog is open it speeds up to every 5 s.
+let cameraTimer = null;
+
 async function refreshCamera() {
   try {
     const res = await fetch(`/api/camera/snapshot?t=${Date.now()}`);
@@ -280,17 +284,40 @@ async function refreshCamera() {
     const img = $("camera-img");
     const old = img.dataset.url;
     img.src = img.dataset.url = URL.createObjectURL(blob);
+    $("camera-modal-img").src = img.src;
     if (old) URL.revokeObjectURL(old);
     $("camera-card").style.display = "";
   } catch { /* keep card hidden/stale */ }
 }
+
+function scheduleCamera() {
+  clearInterval(cameraTimer);
+  // 3 s in the dialog matches the hub's frame cache — faster just re-serves it.
+  cameraTimer = setInterval(refreshCamera, $("camera-modal").hidden ? 60000 : 3000);
+}
+
+function setCameraModal(open) {
+  $("camera-modal").hidden = !open;
+  if (open) $("camera-modal-img").src = $("camera-img").src;
+  scheduleCamera();
+  if (open) refreshCamera();
+}
+
+$("camera-img").addEventListener("click", () => setCameraModal(true));
+$("camera-modal-close").addEventListener("click", () => setCameraModal(false));
+$("camera-modal").addEventListener("click", (e) => {
+  if (e.target === $("camera-modal")) setCameraModal(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("camera-modal").hidden) setCameraModal(false);
+});
 
 refreshStatus();
 refreshHistory();
 refreshLog();
 refreshSystem();
 refreshCamera();
-setInterval(refreshCamera, 6000);
+scheduleCamera();
 setInterval(refreshStatus, 3000);
 setInterval(refreshHistory, 30000);
 setInterval(refreshLog, 15000);

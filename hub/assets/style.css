@@ -92,7 +92,27 @@ button {
 button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
 button:active { transform: translateY(1px); }
 
-#camera-img { width: 100%; border-radius: 10px; display: block; }
+#camera-img { width: 100%; border-radius: 10px; display: block; cursor: zoom-in; }
+
+/* enlarged camera view — centered dialog */
+#camera-modal {
+  position: fixed; inset: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 9, 8, 0.82); padding: 32px;
+}
+#camera-modal[hidden] { display: none; }
+#camera-modal-box { position: relative; max-width: min(1400px, 92vw); }
+#camera-modal-box img {
+  display: block; width: 100%; max-height: 86vh; object-fit: contain;
+  border-radius: 12px; border: 1px solid var(--line);
+}
+#camera-modal-close {
+  position: absolute; top: 10px; right: 10px;
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--line); background: rgba(10, 14, 12, 0.75);
+  color: var(--text); font-size: 0.9rem; cursor: pointer;
+}
+#camera-modal-close:hover { background: rgba(10, 14, 12, 0.95); }
 
 /* device stats footer, App Lab style */
 #device-bar {

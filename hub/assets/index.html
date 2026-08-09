@@ -45,6 +45,11 @@
 
         <div class="grid">
           <div class="col">
+            <section class="card" id="camera-card" style="display:none">
+              <h2>Camera</h2>
+              <img id="camera-img" alt="Garden camera" />
+            </section>
+
             <section class="card">
               <h2>Next watering</h2>
               <p class="big" id="next">–</p>
@@ -67,11 +72,6 @@
           </div>
 
           <div class="col">
-            <section class="card" id="camera-card" style="display:none">
-              <h2>Garden camera</h2>
-              <img id="camera-img" alt="Garden camera" />
-            </section>
-
             <section class="card">
               <h2>Environment</h2>
               <div class="kv" id="env">
@@ -114,6 +114,13 @@
           <button type="submit" id="chat-send">Send</button>
         </form>
       </aside>
+    </div>
+
+    <div id="camera-modal" hidden>
+      <div id="camera-modal-box">
+        <button id="camera-modal-close" type="button" aria-label="Close">✕</button>
+        <img id="camera-modal-img" alt="Garden camera" />
+      </div>
     </div>
 
     <footer id="device-bar">

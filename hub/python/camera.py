@@ -18,7 +18,9 @@ from typing import Optional
 from arduino.app_peripherals.camera import Camera
 from arduino.app_utils.image import compress_to_jpeg
 
-MIN_INTERVAL_S = 3.0        # serve the cached frame if newer than this
+MIN_INTERVAL_S = 3.0        # serve the cached frame if newer than this. Clients
+                            # pace themselves (60 s ambient, ~5 s with the viewer
+                            # open); this only coalesces concurrent viewers.
 CAPTURE_RES = (1280, 720)   # plenty for diagnosis; 2K would slow the LAN
 
 

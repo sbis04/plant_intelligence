@@ -238,7 +238,17 @@ async function askAssistant(question) {
   chatBusy = true;
   $("chat-send").disabled = true;
   $("chat-suggest").style.display = "none";
-  addMsg(question, "user");
+
+  // upload the attached photo first; it rides along by id
+  let attachId = "";
+  if (attachFile) {
+    try {
+      const up = await fetch("/api/chat/attach", { method: "POST", body: attachFile });
+      attachId = (await up.json()).id || "";
+    } catch { /* send without it */ }
+    clearAttachment();
+  }
+  addMsg(attachId ? `${question} 📎` : question, "user");
   const pending = addMsg("thinking…", "bot thinking");
   // Honest waiting: show elapsed time plus which backend is actually
   // answering (the status poll keeps assistantBackend current even while
@@ -256,7 +266,8 @@ async function askAssistant(question) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 300000);
     const res = await fetch(
-      `/api/chat/stream?message=${encodeURIComponent(question)}&thread_id=${currentThread}`,
+      `/api/chat/stream?message=${encodeURIComponent(question)}` +
+      `&thread_id=${currentThread}&attachment_id=${attachId}`,
       { method: "POST", signal: ctrl.signal });
     const tid = Number(res.headers.get("X-Thread-Id") || 0);
     if (tid) currentThread = tid;
@@ -291,7 +302,44 @@ $("chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const q = $("chat-input").value;
   $("chat-input").value = "";
+  $("chat-input").style.height = "auto";
   askAssistant(q);
+});
+
+// ---- photo attachments ------------------------------------------------------
+let attachFile = null;
+
+$("chat-attach").addEventListener("click", () => $("attach-input").click());
+$("attach-input").addEventListener("change", () => {
+  const f = $("attach-input").files[0];
+  if (!f) return;
+  attachFile = f;
+  $("attach-img").src = URL.createObjectURL(f);
+  $("attach-preview").hidden = false;
+});
+$("attach-remove").addEventListener("click", clearAttachment);
+
+function clearAttachment() {
+  attachFile = null;
+  $("attach-input").value = "";
+  const img = $("attach-img");
+  if (img.src) URL.revokeObjectURL(img.src);
+  img.removeAttribute("src");
+  $("attach-preview").hidden = true;
+}
+
+// Enter sends, Shift+Enter makes a newline; the box grows with the text.
+$("chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    $("chat-form").requestSubmit();
+  }
+});
+$("chat-input").addEventListener("input", () => {
+  const t = $("chat-input");
+  t.style.height = "auto";
+  t.style.height = `${Math.min(t.scrollHeight, 120)}px`;
+  t.style.overflowY = t.scrollHeight > 120 ? "auto" : "hidden";
 });
 
 document.querySelectorAll(".chip-btn").forEach((b) =>

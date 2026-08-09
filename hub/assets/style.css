@@ -161,12 +161,44 @@ main { padding-bottom: 64px; }
 .chip-btn { flex: none; font-size: 0.78rem; padding: 5px 10px; border-radius: 99px;
   background: var(--bg); color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
 .chip-btn:hover { color: var(--text); }
-#chat-form { display: flex; gap: 8px; }
-#chat-input { flex: 1; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
-  background: var(--bg); color: var(--text); font-size: 0.9rem; outline: none; }
-#chat-input:focus { border-color: var(--accent); }
-#chat-send { flex: none; padding: 10px 16px; font-size: 0.9rem; }
-#chat-send:disabled { opacity: 0.5; }
+/* composer: multiline text on top, controls row below, send bottom-right */
+#chat-form {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 10px 8px; border-radius: 16px;
+  border: 1px solid var(--line); background: var(--bg);
+}
+#chat-form:focus-within { border-color: var(--accent); }
+#chat-input {
+  width: 100%; border: 0; background: transparent; resize: none;
+  color: var(--text); font: inherit; font-size: 0.9rem; line-height: 1.4;
+  outline: none; max-height: 120px; padding: 2px 4px;
+  overflow-y: hidden; scrollbar-width: none;
+}
+#chat-input::-webkit-scrollbar { display: none; }
+.chat-form-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+#chat-send {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  border: 0; background: var(--accent); color: #0d1410; cursor: pointer;
+}
+#chat-send:disabled { opacity: 0.5; cursor: default; }
+#chat-attach {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--panel);
+  color: var(--muted); cursor: pointer; margin-right: auto;
+}
+#chat-attach:hover { color: var(--text); }
+#attach-preview {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px;
+}
+#attach-preview[hidden] { display: none; }
+#attach-preview img { height: 44px; border-radius: 8px; display: block; }
+#attach-remove {
+  flex: none; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  font-size: 0.7rem; line-height: 1; cursor: pointer;
+}
 
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; }

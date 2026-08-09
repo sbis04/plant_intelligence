@@ -115,8 +115,29 @@
           <button class="chip-btn">Summarize the last 24 hours</button>
         </div>
         <form id="chat-form">
-          <input id="chat-input" type="text" placeholder="Ask the garden…" autocomplete="off" />
-          <button type="submit" id="chat-send">Send</button>
+          <div id="attach-preview" hidden>
+            <img id="attach-img" alt="Attached photo" />
+            <button type="button" id="attach-remove" aria-label="Remove photo">✕</button>
+          </div>
+          <textarea id="chat-input" placeholder="Ask the garden…" rows="1"
+                    autocomplete="off"></textarea>
+          <div class="chat-form-row">
+            <button type="button" id="chat-attach" aria-label="Attach photo">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+                   stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                   stroke-linejoin="round">
+                <path d="M13.2 7.6 8.3 12.5a3.4 3.4 0 0 1-4.8-4.8l5-4.9a2.3 2.3 0 0 1 3.2 3.2l-4.9 4.9a1.1 1.1 0 0 1-1.6-1.6l4.6-4.6"/>
+              </svg>
+            </button>
+            <button type="submit" id="chat-send" aria-label="Send">
+              <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
+                   stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                   stroke-linejoin="round">
+                <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+              </svg>
+            </button>
+          </div>
+          <input type="file" id="attach-input" accept="image/*" hidden />
         </form>
       </aside>
     </div>

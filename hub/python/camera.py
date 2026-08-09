@@ -31,6 +31,8 @@ MAX_STREAMS = 2             # Tapo allows few RTSP sessions; leave one spare
 STREAM_STALE_S = 30.0       # a slot silent this long is a dead client whose
                             # generator hasn't been reaped yet — don't let it
                             # block new viewers
+STREAM_QUALITY = 92         # plants are static: spend bits on quality,
+STREAM_MAX_FPS = 5.0        # not motion
 
 
 class CameraService:
@@ -116,11 +118,17 @@ class CameraService:
             url = self._config.camera_rtsp_url.replace("stream1", "stream2")
             cam = Camera(url, **kwargs)
             cam.start()
+            last_yield = 0.0
             while True:
-                frame = cam.capture()   # blocks until the next frame — the
-                jpeg = compress_to_jpeg(frame=frame, quality=80)  # source paces us
+                frame = cam.capture()   # blocks until the next frame; always
+                                        # drain so the buffer never lags
+                now = time.time()
+                if now - last_yield < 1.0 / STREAM_MAX_FPS:
+                    continue            # skip encode entirely between yields
+                jpeg = compress_to_jpeg(frame=frame, quality=STREAM_QUALITY)
                 if jpeg is None:
                     continue
+                last_yield = now
                 data = jpeg.tobytes()
                 with self._lock:        # keep ambient snapshots warm for free
                     self._cached = data

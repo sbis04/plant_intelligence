@@ -101,16 +101,23 @@ button:active { transform: translateY(1px); }
   background: rgba(6, 9, 8, 0.82); padding: 32px;
 }
 #camera-modal[hidden] { display: none; }
-/* the img sizes itself (no width:100%) so its box hugs the painted frame
-   and the close button anchors to the actual image corner */
+/* the snapshot img sizes itself (no width:100%) so the box hugs the painted
+   frame and the close button anchors to the actual image corner; the live
+   stream img paints on top of it once frames arrive */
 #camera-modal-box { position: relative; }
-#camera-modal-box img {
+#camera-modal-img {
   display: block; max-width: min(1400px, 92vw); max-height: 86vh;
   border: 1px solid var(--line);
 }
+#camera-modal-stream {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  border: 1px solid var(--line);
+}
 #camera-modal-close {
-  position: absolute; top: 10px; right: 10px;
-  width: 32px; height: 32px; border-radius: 50%;
+  position: absolute; top: 10px; right: 10px; z-index: 1;
+  width: 32px; height: 32px; border-radius: 50%; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
   border: 1px solid var(--line); background: rgba(10, 14, 12, 0.75);
   color: var(--text); font-size: 0.9rem; cursor: pointer;
 }

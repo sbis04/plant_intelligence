@@ -196,7 +196,7 @@ main { padding-bottom: 64px; }
 #attach-preview img { height: 44px; border-radius: 8px; display: block; }
 .msg img {
   display: block; height: 56px; width: auto; max-width: 140px;
-  object-fit: contain; border-radius: 8px; margin-bottom: 6px;
+  object-fit: contain; border-radius: 5px; margin-bottom: 6px;
 }
 .msg span { display: block; }
 #attach-remove {

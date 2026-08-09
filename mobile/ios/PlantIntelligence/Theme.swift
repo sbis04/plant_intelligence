@@ -12,15 +12,24 @@ enum Theme {
     static let textMuted = Color(red: 0.561, green: 0.639, blue: 0.596) // #8FA398
 }
 
-extension View {
-    /// Progressive blur under the status bar — the same treatment the
-    /// system gives the bottom tab bar. Drawn manually: a material band
-    /// that fades out, so content scrolling beneath the clock blurs away
-    /// instead of colliding with it.
-    func topEdgeFade() -> some View {
-        overlay(alignment: .top) {
-            Rectangle()
-                .fill(.ultraThinMaterial)
+/// Progressive blur under the status bar — the same treatment the system
+/// gives the bottom tab bar: dark-tinted material fading out. Appears only
+/// once content actually scrolls up under the clock.
+private struct TopEdgeFade: ViewModifier {
+    @State private var scrolled = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 10
+            } action: { _, isScrolled in
+                withAnimation(.easeInOut(duration: 0.2)) { scrolled = isScrolled }
+            }
+            .overlay(alignment: .top) {
+                ZStack {
+                    Rectangle().fill(.ultraThinMaterial)
+                    Theme.bgDeep.opacity(0.45)
+                }
                 .frame(height: 90)
                 .mask(
                     LinearGradient(
@@ -30,8 +39,13 @@ extension View {
                         startPoint: .top, endPoint: .bottom))
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
-        }
+                .opacity(scrolled ? 1 : 0)
+            }
     }
+}
+
+extension View {
+    func topEdgeFade() -> some View { modifier(TopEdgeFade()) }
 }
 
 /// The app-wide backdrop: a deep botanical gradient the glass layers float over.

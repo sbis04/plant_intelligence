@@ -12,6 +12,13 @@ struct GardenView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
+                    HStack(alignment: .center) {
+                        Text("Garden")
+                            .font(.largeTitle.weight(.bold))
+                        Spacer()
+                        LinkBadge(link: app.link)
+                    }
+                    .padding(.top, 8)
                     hero
                     tiles
                     CameraCard()
@@ -22,12 +29,7 @@ struct GardenView: View {
                 .padding(.bottom, 90)
             }
             .background(GardenBackground())
-            .navigationTitle("Garden")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    LinkBadge(link: app.link)
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { actionBar }
             .refreshable {
                 await app.refreshStatus()
@@ -39,47 +41,47 @@ struct GardenView: View {
     // MARK: hero
 
     private var hero: some View {
-        VStack(spacing: 10) {
+        HStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .stroke(Theme.line, lineWidth: 10)
-                    .frame(width: 150, height: 150)
-                Circle()
-                    .trim(from: 0, to: heroProgress)
-                    .stroke(Theme.accent,
-                            style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .frame(width: 150, height: 150)
-                    .rotationEffect(.degrees(-90))
-                    .animation(.snappy, value: heroProgress)
-                VStack(spacing: 2) {
-                    Image(systemName: heroSymbol)
-                        .font(.system(size: 34))
-                        .foregroundStyle(Theme.accent)
-                        .symbolEffect(.pulse, isActive: s?.isWatering == true)
-                    Text(heroTitle)
-                        .font(.headline)
-                    Text(heroSubtitle)
+                    .fill(Theme.accent.opacity(0.16))
+                    .frame(width: 64, height: 64)
+                if heroProgress > 0 {
+                    Circle()
+                        .trim(from: 0, to: heroProgress)
+                        .stroke(Theme.accent,
+                                style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .frame(width: 64, height: 64)
+                        .rotationEffect(.degrees(-90))
+                        .animation(.snappy, value: heroProgress)
+                }
+                Image(systemName: heroSymbol)
+                    .font(.system(size: 26))
+                    .foregroundStyle(Theme.accent)
+                    .symbolEffect(.pulse, isActive: s?.isWatering == true)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(heroTitle)
+                    .font(.title2.weight(.semibold))
+                    .monospacedDigit()
+                Text(heroSubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textMuted)
+                if let loc = app.status?.location, let name = loc.name, !name.isEmpty {
+                    Label(name, systemImage: "location.fill")
                         .font(.caption)
                         .foregroundStyle(Theme.textMuted)
                 }
             }
-            if let loc = app.status?.location, let name = loc.name, !name.isEmpty {
-                Label(name, systemImage: "location.fill")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
-            }
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
+        .padding(.vertical, 8)
     }
 
     private var heroProgress: CGFloat {
-        guard let s else { return 0 }
-        if s.isWatering, let left = s.wateringSecondsLeft, let plan,
-           plan.durationS > 0 {
-            return CGFloat(left) / CGFloat(plan.durationS)
-        }
-        return app.link == .live ? 1 : 0
+        guard let s, s.isWatering, let left = s.wateringSecondsLeft,
+              let plan, plan.durationS > 0 else { return 0 }
+        return CGFloat(left) / CGFloat(plan.durationS)
     }
 
     private var heroSymbol: String {
@@ -227,12 +229,12 @@ struct LinkBadge: View {
     let link: AppState.Link
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Circle()
                 .fill(color)
-                .frame(width: 7, height: 7)
+                .frame(width: 9, height: 9)
             Text(text)
-                .font(.caption2.weight(.medium))
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.textMuted)
         }
     }

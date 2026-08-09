@@ -33,6 +33,8 @@ struct AssistantView: View {
                     .padding(.bottom, 8)
                 }
                 .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.immediately)
+                .onTapGesture { inputFocused = false }
                 .onChange(of: app.messages.count) {
                     if let last = app.messages.last?.id {
                         withAnimation(.snappy) { proxy.scrollTo(last, anchor: .bottom) }

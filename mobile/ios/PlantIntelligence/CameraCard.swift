@@ -10,7 +10,9 @@ struct CameraCard: View {
     @State private var available = false
 
     var body: some View {
-        Group {
+        // The poller must live on a view that ALWAYS renders — attaching
+        // .task to a conditionally-empty view means it never starts.
+        VStack(spacing: 0) {
             if available, let image {
                 PanelCard(title: "Garden camera") {
                     Image(uiImage: image)
@@ -19,6 +21,8 @@ struct CameraCard: View {
                         .frame(maxWidth: .infinity)
                         .clipShape(.rect(cornerRadius: 12))
                 }
+            } else {
+                Color.clear.frame(height: 1)   // keeps the view (and task) alive
             }
         }
         .task {

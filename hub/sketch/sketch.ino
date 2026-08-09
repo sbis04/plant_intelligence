@@ -266,9 +266,10 @@ void loop() {
       } else if (fanOn && t < FAN_OFF_TEMP) {
         digitalWrite(PIN_RELAY_FAN, RELAY_OFF); fanOn = false; notifyEvent(8);
       }
-    } else if (++dhtFailStreak >= 6 && !dhtFailing) {  // ~1 min of failures,
-      dhtFailing = true;                               // reported once per episode
+    } else if (++dhtFailStreak >= 6) {   // ~1 min of failures; repeats while
+      dhtFailing = true;                 // failing — raw, unfiltered log style
       notifyEvent(9);
+      dhtFailStreak = 0;
     }
   }
 

@@ -153,6 +153,86 @@ $("stop-btn").addEventListener("click", async () => {
   refreshHistory();
 });
 
+// ---- assistant ------------------------------------------------------------
+const chatBox = $("chat-messages");
+let chatBusy = false;
+
+function addMsg(text, cls) {
+  const empty = chatBox.querySelector(".chat-empty");
+  if (empty) empty.remove();
+  const div = document.createElement("div");
+  div.className = `msg ${cls}`;
+  div.textContent = text;
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+  return div;
+}
+
+async function askAssistant(question) {
+  if (chatBusy || !question.trim()) return;
+  chatBusy = true;
+  $("chat-send").disabled = true;
+  $("chat-suggest").style.display = "none";
+  addMsg(question, "user");
+  const pending = addMsg("thinking…", "bot thinking");
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 300000);
+    const res = await fetch(`/api/chat?message=${encodeURIComponent(question)}`,
+      { method: "POST", signal: ctrl.signal });
+    clearTimeout(timer);
+    const out = await res.json();
+    pending.classList.remove("thinking");
+    if (out.reply) {
+      pending.textContent = out.reply;
+    } else {
+      pending.classList.add("error");
+      pending.textContent = out.error || "no reply";
+    }
+  } catch {
+    pending.classList.remove("thinking");
+    pending.classList.add("error");
+    pending.textContent = "assistant unreachable";
+  }
+  chatBusy = false;
+  $("chat-send").disabled = false;
+}
+
+$("chat-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = $("chat-input").value;
+  $("chat-input").value = "";
+  askAssistant(q);
+});
+
+document.querySelectorAll(".chip-btn").forEach((b) =>
+  b.addEventListener("click", () => askAssistant(b.textContent)));
+
+const panel = $("assistant-panel");
+$("assistant-open").addEventListener("click", () => panel.classList.add("open"));
+$("assistant-close").addEventListener("click", () => panel.classList.remove("open"));
+
+// resizable drawer: drag the left edge; width persisted
+const savedW = localStorage.getItem("assistantWidth");
+if (savedW) panel.style.setProperty("--panel-w", `${savedW}px`);
+$("panel-resize").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  panel.classList.add("resizing");
+  const onMove = (ev) => {
+    const w = Math.min(640, Math.max(300, window.innerWidth - ev.clientX));
+    panel.style.setProperty("--panel-w", `${w}px`);
+  };
+  const onUp = (ev) => {
+    panel.classList.remove("resizing");
+    const w = Math.min(640, Math.max(300, window.innerWidth - ev.clientX));
+    localStorage.setItem("assistantWidth", String(Math.round(w)));
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+});
+
 refreshStatus();
 refreshHistory();
 refreshLog();

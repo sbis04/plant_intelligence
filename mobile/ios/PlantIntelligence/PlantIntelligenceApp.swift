@@ -46,9 +46,12 @@ struct RootView: View {
                 SettingsView()
             }
             // Not a destination: the search role detaches this item to the
-            // right of the tab bar; selecting it opens the assistant overlay
-            // on the Plants tab instead of switching to a tab of its own.
-            Tab("Assistant", systemImage: "sparkles", value: 1, role: .search) {
+            // right of the tab bar; selecting it toggles the assistant
+            // overlay on the Plants tab instead of switching to a tab of
+            // its own, and reads as Close while the overlay is up.
+            Tab(app.assistantOpen ? "Close" : "Assistant",
+                systemImage: app.assistantOpen ? "xmark" : "sparkles",
+                value: 1, role: .search) {
                 Color.clear
             }
         }
@@ -56,7 +59,7 @@ struct RootView: View {
         .onChange(of: selection) {
             if selection == 1 {
                 selection = 0
-                withAnimation(.snappy) { app.assistantOpen = true }
+                withAnimation(.snappy) { app.assistantOpen.toggle() }
             }
         }
         .task {

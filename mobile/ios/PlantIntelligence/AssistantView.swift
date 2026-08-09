@@ -69,14 +69,6 @@ struct AssistantOverlay: View {
             }
             .buttonStyle(.glass)
             .disabled(app.messages.isEmpty || app.assistantBusy)
-            Button {
-                withAnimation(.snappy) { app.assistantOpen = false }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.glass)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)

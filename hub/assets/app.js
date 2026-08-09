@@ -173,6 +173,16 @@ async function askAssistant(question) {
   $("chat-suggest").style.display = "none";
   addMsg(question, "user");
   const pending = addMsg("thinking…", "bot thinking");
+  // Honest waiting: the on-device model spends a while reading the live
+  // data before the first token — show elapsed time so a long wait doesn't
+  // look like a hang.
+  const started = Date.now();
+  const ticker = setInterval(() => {
+    if (!pending.classList.contains("thinking")) return;
+    const s = Math.round((Date.now() - started) / 1000);
+    pending.textContent = `thinking on-device… ${s}s` +
+      (s > 75 ? " (first answer after a restart takes the longest)" : "");
+  }, 1000);
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 300000);
@@ -199,6 +209,7 @@ async function askAssistant(question) {
     pending.classList.add("error");
     pending.textContent = "assistant unreachable";
   }
+  clearInterval(ticker);
   chatBusy = false;
   $("chat-send").disabled = false;
 }

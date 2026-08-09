@@ -145,6 +145,7 @@ struct AssistantView: View {
 /// on-device generation legitimately takes a minute or two.
 struct ThinkingBubble: View {
     @State private var phase = 0
+    @State private var elapsed = 0
 
     var body: some View {
         HStack {
@@ -155,9 +156,10 @@ struct ThinkingBubble: View {
                         .frame(width: 7, height: 7)
                         .opacity(phase == i ? 1 : 0.3)
                 }
-                Text("thinking on-device…")
+                Text(label)
                     .font(.caption)
                     .foregroundStyle(Theme.textMuted)
+                    .monospacedDigit()
                     .padding(.leading, 4)
             }
             .padding(.horizontal, 14)
@@ -167,10 +169,19 @@ struct ThinkingBubble: View {
             Spacer(minLength: 48)
         }
         .task {
+            var ticks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(350))
                 phase = (phase + 1) % 3
+                ticks += 1
+                elapsed = ticks * 350 / 1000
             }
         }
+    }
+
+    private var label: String {
+        var text = "thinking on-device… \(elapsed)s"
+        if elapsed > 75 { text += " — first answer after a restart takes the longest" }
+        return text
     }
 }

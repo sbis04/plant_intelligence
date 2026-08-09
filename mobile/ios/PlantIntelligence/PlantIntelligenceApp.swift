@@ -1,7 +1,22 @@
 import SwiftUI
+import UIKit
+
+/// The app lives in portrait; only the full-screen camera viewer is allowed
+/// to rotate, by flipping this gate while it's presented.
+@MainActor
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    static var allowLandscape = false
+
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?)
+        -> UIInterfaceOrientationMask {
+        Self.allowLandscape ? [.portrait, .landscapeLeft, .landscapeRight] : .portrait
+    }
+}
 
 @main
 struct PlantIntelligenceApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var appState = AppState()
 
     var body: some Scene {

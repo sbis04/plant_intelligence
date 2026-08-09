@@ -21,7 +21,9 @@ targets:
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # Landscape stays listed so the camera viewer can rotate; the
+        # AppDelegate gate keeps everything else portrait.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
         CODE_SIGNING_ALLOWED: "NO"
     info:

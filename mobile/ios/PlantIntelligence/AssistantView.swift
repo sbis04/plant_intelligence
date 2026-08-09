@@ -22,7 +22,7 @@ struct AssistantOverlay: View {
                 .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
             GardenBackground()
-                .opacity(0.88)
+                .opacity(0.5)
 
             ScrollViewReader { proxy in
                 ScrollView {

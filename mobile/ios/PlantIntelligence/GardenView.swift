@@ -276,8 +276,8 @@ struct GardenView: View {
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 14)
     }
 
     private func send() {

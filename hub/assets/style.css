@@ -50,6 +50,7 @@ h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color
 .kv div { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--line); font-size: 0.88rem; }
 .kv div:first-child { border-top: 0; }
 .kv span { color: var(--muted); }
+.kv div.stack { flex-direction: column; align-items: flex-start; gap: 2px; }
 .kv b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .kv b.on { color: var(--accent); }
 

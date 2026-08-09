@@ -84,26 +84,41 @@ struct GardenView: View {
         return CGFloat(left) / CGFloat(plan.durationS)
     }
 
+    // The hero states only what the system actually knows: its irrigation
+    // status. A "plant health" claim belongs here only once something real
+    // (soil probe, photo diagnosis) backs it.
+    private var rainHold: Bool {
+        plan?.reasons.contains { $0.localizedCaseInsensitiveContains("rain") } ?? false
+    }
+
     private var heroSymbol: String {
-        guard let s else { return "leaf" }
-        return s.isWatering ? "drop.fill" : "leaf.fill"
+        guard app.link == .live, let s else { return "antenna.radiowaves.left.and.right.slash" }
+        if s.isWatering { return "drop.fill" }
+        if plan?.waterNow == true { return "drop.circle" }
+        if rainHold { return "cloud.rain.fill" }
+        return "leaf.fill"
     }
 
     private var heroTitle: String {
+        guard app.link != .offline else { return "Hub offline" }
         guard let s else { return "Connecting…" }
         if s.isWatering, let left = s.wateringSecondsLeft {
-            return String(format: "%d:%02d", left / 60, left % 60)
+            return String(format: "Watering %d:%02d", left / 60, left % 60)
         }
-        return "Healthy"
+        guard plan != nil else { return "Idle" }
+        if plan?.waterNow == true { return "Watering due" }
+        if rainHold { return "Waiting out the rain" }
+        return "On schedule"
     }
 
     private var heroSubtitle: String {
-        guard let s else { return "" }
-        if s.isWatering { return "watering" }
+        guard app.link == .live else { return "check the hub connection in Settings" }
+        if s?.isWatering == true { return "stop anytime below" }
         if let next = plan?.nextWaterDate {
-            return "next " + next.formatted(.relative(presentation: .named))
+            return "Next watering \(next.formatted(.relative(presentation: .named))) · "
+                 + next.formatted(date: .omitted, time: .shortened)
         }
-        return plan?.waterNow == true ? "watering due" : "idle"
+        return plan?.waterNow == true ? "starting shortly" : "no watering planned yet"
     }
 
     // MARK: tiles

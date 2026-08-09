@@ -30,10 +30,8 @@ function render(data) {
   const w = data.weather || {};
   const loc = data.location || {};
 
-  // header
-  const srcLabel = { ip: "auto-located", manual: "set manually", device: "from device" };
-  $("location").textContent =
-    (loc.name ? `${loc.name} · ${srcLabel[loc.source] || loc.source}` : "location unknown") + " ✎";
+  // header — click to edit
+  $("location").textContent = loc.name || "set location";
 
   // tiles
   $("soil").textContent = s.soil_pct != null ? fmtPct(s.soil_pct) : "no probe";
@@ -178,16 +176,23 @@ async function askAssistant(question) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 300000);
-    const res = await fetch(`/api/chat?message=${encodeURIComponent(question)}`,
+    const res = await fetch(`/api/chat/stream?message=${encodeURIComponent(question)}`,
       { method: "POST", signal: ctrl.signal });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      pending.classList.remove("thinking");
+      pending.textContent = text;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
     clearTimeout(timer);
-    const out = await res.json();
-    pending.classList.remove("thinking");
-    if (out.reply) {
-      pending.textContent = out.reply;
-    } else {
+    if (!text.trim()) {
       pending.classList.add("error");
-      pending.textContent = out.error || "no reply";
+      pending.textContent = "no reply";
     }
   } catch {
     pending.classList.remove("thinking");
@@ -233,9 +238,32 @@ $("panel-resize").addEventListener("pointerdown", (e) => {
   window.addEventListener("pointerup", onUp);
 });
 
+// ---- device stats footer ----------------------------------------------------
+const GB = 1024 ** 3;
+async function refreshSystem() {
+  try {
+    const res = await fetch("/api/system");
+    const { system } = await res.json();
+    if (!system || system.error) return;
+    $("dev-cpu").textContent = `CPU ${system.cpu_percent}%`;
+    $("dev-cpu").classList.toggle("hot", system.cpu_percent >= 85);
+    const t = system.soc_temperature_c;
+    $("dev-temp").textContent = t != null ? `SOC ${t.toFixed(1)}°C` : "SOC –";
+    $("dev-temp").classList.toggle("hot", t != null && t >= 75);
+    const m = system.memory;
+    $("dev-ram").textContent =
+      `RAM ${(m.used_bytes / GB).toFixed(2)}/${(m.total_bytes / GB).toFixed(2)}GB`;
+    const s = system.storage;
+    $("dev-disk").textContent =
+      `DISK ${(s.root_used_bytes / GB).toFixed(1)}/${(s.root_total_bytes / GB).toFixed(1)}GB`;
+  } catch { /* footer keeps last values */ }
+}
+
 refreshStatus();
 refreshHistory();
 refreshLog();
+refreshSystem();
 setInterval(refreshStatus, 3000);
 setInterval(refreshHistory, 30000);
 setInterval(refreshLog, 15000);
+setInterval(refreshSystem, 10000);

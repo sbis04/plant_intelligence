@@ -152,6 +152,7 @@ def main():
 
         if now - last["plan"] >= 300:
             last["plan"] = now
+            ctx.store.close_stale_open_rows()   # age-guarded; safe to run anytime
             ctx.recompute_plan()
 
         ctx.execute_plan()

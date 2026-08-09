@@ -136,14 +136,15 @@ struct AssistantOverlay: View {
             if msg.role == .user { Spacer(minLength: 48) }
             VStack(alignment: .leading, spacing: 8) {
                 if let url = msg.attachmentURL {
+                    // Thumbnail-sized but never cropped: fit inside a small
+                    // box at the photo's own aspect ratio, leading-aligned.
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Theme.line)
-                            .frame(width: 90, height: 68)
+                        Rectangle().fill(Theme.line)
+                            .frame(width: 56, height: 42)
                     }
-                    .frame(maxWidth: 130, maxHeight: 110)
+                    .frame(maxWidth: 110, maxHeight: 82, alignment: .leading)
                     .clipShape(.rect(cornerRadius: 8))
                 }
                 Text(msg.text)

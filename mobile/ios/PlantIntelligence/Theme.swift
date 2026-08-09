@@ -13,13 +13,24 @@ enum Theme {
 }
 
 extension View {
-    /// The system's progressive top-edge blur: an empty inline navigation
-    /// bar is invisible at rest but gives the native scroll edge effect
-    /// something to render under once content scrolls beneath it.
+    /// Progressive blur under the status bar — the same treatment the
+    /// system gives the bottom tab bar. Drawn manually: a material band
+    /// that fades out, so content scrolling beneath the clock blurs away
+    /// instead of colliding with it.
     func topEdgeFade() -> some View {
-        self
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .toolbarTitleDisplayMode(.inline)
+        overlay(alignment: .top) {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .frame(height: 90)
+                .mask(
+                    LinearGradient(
+                        stops: [.init(color: .black, location: 0),
+                                .init(color: .black, location: 0.55),
+                                .init(color: .clear, location: 1)],
+                        startPoint: .top, endPoint: .bottom))
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
+        }
     }
 }
 

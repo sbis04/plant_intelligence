@@ -6,18 +6,18 @@ now, for how long, and if not, when do we expect to next.
 
 Two modes, chosen by whether the soil probe is reporting:
 
-  no probe  — fixed daily slots (07:00 and 17:00), the rhythm the old ESP32
-              system ran on. Weather can still shorten a dose or skip a slot
-              it would only waste, but it never moves the clock.
+  no probe  — fixed daily slots (07:00 and 17:00) for a flat 5 minutes, the
+              rhythm the old ESP32 system ran on. Weather's only say is
+              skipping a slot the rain is already covering.
   with probe — the cadence is predicted, not fixed: the interval between
-              waterings stretches and shrinks with soil moisture and weather.
+              waterings stretches and shrinks with soil moisture and
+              weather, and the dose scales with how hot the day is.
 
 The split is deliberate. Guessing an interval from the forecast alone is a
 guess dressed up as a decision; once the probe can say the soil is dry, the
 adaptive cadence has something real to stand on and switches on by itself.
-Either way the duration scales with how hot the day actually is, and every
-plan carries a human-readable list of the factors that produced it, which
-the app surfaces as "why".
+Either way every plan carries a human-readable list of the factors that
+produced it, which the app surfaces as "why".
 """
 
 from dataclasses import dataclass, field
@@ -145,30 +145,28 @@ def compute_plan(
     interval_h = cfg.base_interval_h
     duration = float(cfg.base_duration_s)
 
-    # No moisture reading → the clock decides when, weather only decides how
-    # much. Calibrating the probe switches the adaptive cadence back on.
+    # No moisture reading → fixed slots, flat dose. Weather's only remaining
+    # say is skipping a slot rain would waste. Calibrating the probe switches
+    # the adaptive cadence back on by itself.
     fixed = soil_pct is None and cfg.fixed_when_no_soil and bool(cfg.fixed_times)
 
-    # ---- weather shapes the dose, and (adaptive mode only) the cadence -------
+    # ---- weather shapes the cadence and the dose (adaptive mode only) --------
     rain_expected = False
     if weather is not None:
         t = weather.temp_max_next12h
-        if t is not None:
+        if t is not None and not fixed:
             if t >= cfg.very_hot_day_c:
                 interval_h *= 0.6
                 duration *= 1.4
-                reasons.append(f"very hot ({t:.0f}°C max): watering longer" if fixed
-                               else f"very hot ({t:.0f}°C max): watering more often, longer")
+                reasons.append(f"very hot ({t:.0f}°C max): watering more often, longer")
             elif t >= cfg.hot_day_c:
                 interval_h *= 0.75
                 duration *= 1.2
-                reasons.append(f"hot ({t:.0f}°C max): watering a little longer" if fixed
-                               else f"hot ({t:.0f}°C max): watering more often, a little longer")
+                reasons.append(f"hot ({t:.0f}°C max): watering more often, a little longer")
             elif t <= cfg.cool_day_c:
                 interval_h *= 1.3
                 duration *= 0.8
-                reasons.append(f"cool ({t:.0f}°C max): watering shorter" if fixed
-                               else f"cool ({t:.0f}°C max): watering less often, shorter")
+                reasons.append(f"cool ({t:.0f}°C max): watering less often, shorter")
 
         p = weather.precip_prob_max_next12h
         if p is not None and p >= cfg.rain_skip_probability:
@@ -183,7 +181,7 @@ def compute_plan(
             rain_expected = True
             reasons.append("currently raining: no irrigation needed")
     else:
-        reasons.append("no weather data: using the standard dose" if fixed
+        reasons.append("no weather data: watering on schedule" if fixed
                        else "no weather data: using neutral cadence")
 
     # ---- soil overrides the calendar when available ---------------------------
@@ -199,6 +197,11 @@ def compute_plan(
             reasons.append(f"soil dry ({soil_pct:.0f}%): watering now")
         else:
             reasons.append(f"soil ok ({soil_pct:.0f}%)")
+
+    if fixed:
+        # Flat dose — a plain 5 minutes, exactly what the old system ran.
+        # The rain multiplier above only survives as the slot-skip signal.
+        duration = float(cfg.base_duration_s)
 
     interval_h = max(cfg.min_interval_h, min(cfg.max_interval_h, interval_h))
     duration_s = int(max(cfg.min_duration_s, min(cfg.max_duration_s, duration)))

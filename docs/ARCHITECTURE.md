@@ -75,16 +75,16 @@ It runs in one of two modes, selected by whether the soil probe reports:
 17:00 by default (`fixed_times`), the rhythm the old ESP32 system ran on.
 A slot fires only if it hasn't already been served and wasn't missed by
 more than `fixed_catchup_min` (90 min), so a hub that boots at noon doesn't
-immediately water for a slot it slept through. Weather never moves the
-clock here; it only shortens or lengthens the dose, or skips a slot rain is
-already covering.
+immediately water for a slot it slept through. The dose is flat — a plain
+`base_duration_s` (5 min), exactly what the old system ran. Weather's only
+say here is skipping a slot rain is already covering.
 
 **Adaptive (probe calibrated).** Enabling `soil_enabled` switches this on by
 itself — no second setting to remember.
 
 - **Interval** starts at 12 h (the old twice-a-day rhythm) and is scaled by
   forecast: ×0.6 on very hot days, ×2 when rain is likely, ×1.3 when cool.
-- **Duration** starts at 300 s and scales the opposite way (both modes).
+- **Duration** starts at 300 s and scales the opposite way.
 - **Soil overrides the calendar**: wet soil postpones regardless of schedule;
   dry soil waters now (inside the allowed window) regardless of the interval.
 - Watering only starts inside a local-time window (default 05:30–20:00).

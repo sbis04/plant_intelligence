@@ -31,12 +31,13 @@ minimum gap between cycles, regardless of what it's asked to do.
 **The Linux side (decisions)** fetches the weather, reads the soil, and
 computes a *plan*: when the next watering should happen and how long it
 should run. Without a calibrated soil probe it keeps to fixed daily slots
-(07:00 and 17:00) and lets the weather change only the dose — an interval
-extrapolated from the forecast alone would be a guess dressed up as a
-decision. Once the probe is calibrated the cadence goes adaptive on its
-own: hot days shorten the interval and lengthen the dose, rain in the
-forecast postpones it, and dry soil overrides the calendar entirely. Every
-plan carries the list of reasons that produced it.
+(07:00 and 17:00) for a flat 5 minutes, and the weather may only skip a
+slot the rain is already covering — an interval extrapolated from the
+forecast alone would be a guess dressed up as a decision. Once the probe is
+calibrated the cadence goes adaptive on its own: hot days shorten the
+interval and lengthen the dose, rain in the forecast postpones it, and dry
+soil overrides the calendar entirely. Every plan carries the list of
+reasons that produced it.
 
 **The failsafe** is a dead-man's switch on the microcontroller. The Linux
 side heartbeats every 30 s; if the MCU hears nothing for 14 hours it waters

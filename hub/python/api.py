@@ -221,11 +221,26 @@ def register(ui, ctx):
                       else "Push notifications disabled")
         return {"accepted": True, "configured": bool(ctx.push and ctx.push.configured)}
 
-    def push_test():
+    def push_test(mode: str = "alert", seconds: int = 120):
+        """mode=alert sends a banner; mode=activity raises a demo watering
+        card (handy for rehearsing the demo, and for proving push-to-start
+        works without actually running the pump); mode=end retires it."""
         if not ctx.push or not ctx.push.configured:
             return {"sent": 0, "error": "push not configured"}
-        sent = ctx.push.notify("Plant Intelligence",
-                               "Push notifications are working.")
+        import time as _t
+        if mode == "activity":
+            sent = ctx.push.activity_start(
+                {"endsAtEpoch": _t.time() + seconds, "totalSeconds": seconds,
+                 "trigger": "scheduled", "finished": False, "note": "Test card"},
+                {"locationName": ctx.config.location_name or "Garden"},
+                alert={"title": "Watering started", "body": "Test card."})
+        elif mode == "end":
+            sent = ctx.push.activity_update(
+                {"endsAtEpoch": _t.time(), "totalSeconds": 0, "trigger": "",
+                 "finished": True, "note": ""}, event="end", dismiss_in_s=5)
+        else:
+            sent = ctx.push.notify("Plant Intelligence",
+                                   "Push notifications are working.")
         return {"sent": sent, "error": ctx.push.last_error}
 
     def assistant_config(api_key: str = "", model: str = ""):

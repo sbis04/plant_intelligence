@@ -242,7 +242,10 @@ class Store:
         """Register a device/activity token. An activity-update token belongs
         to exactly one live activity, so a new one replaces the old."""
         with self._lock:
-            if kind == "activity-update":
+            # Activity tokens are per-activity (update) or reissued per app
+            # install (start) — only the newest is ever valid, and pushing to
+            # a superseded one is silently ignored by Apple.
+            if kind in ("activity-update", "activity-start"):
                 self._db.execute("DELETE FROM push_tokens WHERE kind = ?", (kind,))
             self._db.execute(
                 "INSERT INTO push_tokens (token, kind, updated_at) VALUES (?, ?, ?)"

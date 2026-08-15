@@ -108,8 +108,20 @@ enum LiveActivityManager {
   static func end() {
     // Adopt an orphan (left by a crash or a hub-pushed start) so it can be
     // retired too, not just cards this launch created.
-    let id = currentID
-      ?? Activity<WateringAttributes>.activities.first { $0.activityState == .active }?.id
+    let orphan = Activity<WateringAttributes>.activities.first {
+      $0.activityState == .active
+    }
+    // A card the hub just pushed can arrive a beat before the status poll
+    // catches up to "watering". Leave anything very fresh alone, or we'd
+    // shoot down the card we were asked to show.
+    if let orphan {
+      let state = orphan.content.state
+      let startedAt = state.endsAtEpoch - Double(state.totalSeconds)
+      if !state.finished, Date().timeIntervalSince1970 - startedAt < 25 {
+        return
+      }
+    }
+    let id = currentID ?? orphan?.id
     guard let id else { return }
     currentID = nil
     tokenTask?.cancel()

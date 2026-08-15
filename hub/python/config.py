@@ -76,6 +76,15 @@ class Config:
     cloud_llm_api_key: str = ""
     cloud_llm_model: str = "gemini-flash-latest"   # evergreen alias, never stale
 
+    # --- push notifications (APNs, direct — no Firebase) ---------------------
+    # The .p8 key contents and its ids; set via POST /api/push/config or the
+    # app's Settings. Stored only in hub/data/config.json (gitignored).
+    apns_key_p8: str = ""
+    apns_key_id: str = ""
+    apns_team_id: str = ""
+    apns_bundle_id: str = "com.souvikbiswas.plants"
+    apns_use_sandbox: bool = True        # development builds use the sandbox
+
     # --- failsafe ----------------------------------------------------------------
     failsafe_silence_h: int = 14         # MCU waters on its own after this silence
 

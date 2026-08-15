@@ -46,6 +46,7 @@ class AppContext:
         self.assistant = None   # attached in main() after bricks are up
         self.camera = None
         self.relay = None       # go2rtc live-stream relay
+        self.push = None        # APNs sender, attached in main()
         self._open_watering_row = None
         self._pending_trigger = None   # trigger/reason for the next start event
 
@@ -103,10 +104,71 @@ class AppContext:
                 trigger, 0, reason)
             doc = {"trigger": trigger, "reason": reason}
             self.cloud.push_watering_event(doc)
+            self._announce_watering_started(trigger, reason)
         elif name in ("watering_ended", "watering_stopped"):
             self.store.watering_ended(self._open_watering_row)
             self._open_watering_row = None
             self.recompute_plan()
+            self._announce_watering_ended(name == "watering_stopped")
+
+    # ---- phone notifications ----------------------------------------------------
+    # Pushed straight to APNs (see push.py). Each watering raises a live
+    # activity card with a self-running countdown, plus a normal alert for
+    # the cases you actually want to know about away from home.
+    def _announce_watering_started(self, trigger: str, reason: str):
+        if not self.push:
+            return
+        try:
+            snap = self.hardware.snapshot()
+            duration = snap.get("watering_seconds_left") or (
+                self.current_plan.duration_s if self.current_plan else 300)
+            state = {
+                "endsAtEpoch": time.time() + duration,
+                "totalSeconds": int(duration),
+                "trigger": trigger,
+                "finished": False,
+                "note": reason[:90],
+            }
+            attributes = {"locationName": self.config.location_name or "Garden"}
+            titles = {
+                "manual": "Watering started",
+                "scheduled": "Watering started",
+                "failsafe": "Failsafe watering",
+            }
+            body = {
+                "failsafe": "The microcontroller started watering on its own — "
+                            "it hadn't heard from the hub.",
+            }.get(trigger, reason or f"Running for about {int(duration / 60)} min.")
+            self.push.activity_start(
+                state, attributes,
+                alert={"title": titles.get(trigger, "Watering started"), "body": body})
+            self.push.notify(titles.get(trigger, "Watering started"), body,
+                             interruption="time-sensitive" if trigger == "failsafe"
+                             else "active")
+        except Exception as e:
+            self.store.log("SYSTEM", f"Push (start) failed: {e}", is_error=True)
+
+    def _announce_watering_ended(self, stopped: bool):
+        if not self.push:
+            return
+        try:
+            state = {
+                "endsAtEpoch": time.time(),
+                "totalSeconds": 0,
+                "trigger": "",
+                "finished": True,
+                "note": "",
+            }
+            self.push.activity_update(state, event="end", dismiss_in_s=90)
+            nxt = ""
+            if self.current_plan and self.current_plan.next_water_at:
+                nxt = " Next: " + self.current_plan.next_water_at.strftime(
+                    "%a %d %b, %I:%M %p")
+            self.push.notify("Watering finished" if not stopped else "Watering stopped",
+                             ("The garden has been watered." if not stopped
+                              else "Stopped by request.") + nxt)
+        except Exception as e:
+            self.store.log("SYSTEM", f"Push (end) failed: {e}", is_error=True)
 
     # ---- periodic work ----------------------------------------------------------
     def recompute_plan(self):
@@ -138,6 +200,12 @@ def main():
         ctx.camera = CameraService(ctx.config)
     except Exception as e:
         ctx.store.log("SYSTEM", f"Camera service unavailable: {e}", is_error=True)
+
+    try:
+        from push import PushService
+        ctx.push = PushService(ctx.config, ctx.store, log=ctx.store.log)
+    except Exception as e:
+        ctx.store.log("SYSTEM", f"Push service unavailable: {e}", is_error=True)
 
     try:
         from relay import CameraRelay

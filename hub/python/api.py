@@ -48,6 +48,10 @@ def register(ui, ctx):
                 "cloud_configured": bool(ctx.config.cloud_llm_api_key),
                 "last_backend": ctx.assistant.last_backend if ctx.assistant else None,
             },
+            "push": {
+                "configured": bool(ctx.push and ctx.push.configured),
+                "devices": ctx.store.push_token_counts().get("alert", 0),
+            },
         }
 
     def history():
@@ -60,7 +64,7 @@ def register(ui, ctx):
         from dataclasses import asdict
         cfg = asdict(ctx.config)
         # Never hand secrets back out over the LAN — report presence only.
-        for secret in ("camera_password", "cloud_llm_api_key"):
+        for secret in ("camera_password", "cloud_llm_api_key", "apns_key_p8"):
             cfg[secret] = bool(cfg.get(secret))
         return {"config": cfg}
 
@@ -189,6 +193,41 @@ def register(ui, ctx):
     def camera_hls_segment(id: str, n: int):
         return _relay(f"hls/segment.m4s?id={id}&n={n}")
 
+    # ---- push notifications -------------------------------------------------
+    def push_register(token: str, kind: str = "alert"):
+        """The app registers its APNs tokens here: an alert token, a
+        push-to-start token for live activities, and (while a watering card
+        is on screen) that activity's update token."""
+        if kind not in ("alert", "activity-start", "activity-update"):
+            return {"accepted": False, "error": "unknown token kind"}
+        ctx.store.push_token_save(token.strip(), kind)
+        return {"accepted": True}
+
+    async def push_config(request: Request, key_id: str = "", team_id: str = "",
+                          bundle_id: str = "", sandbox: int = 1):
+        """Install the APNs auth key. POST the .p8 file contents as the body;
+        it is written only to hub/data/config.json on the board."""
+        key = (await request.body()).decode("utf-8", "replace").strip()
+        ctx.config.apns_key_p8 = key
+        if key_id:
+            ctx.config.apns_key_id = key_id.strip()
+        if team_id:
+            ctx.config.apns_team_id = team_id.strip()
+        if bundle_id:
+            ctx.config.apns_bundle_id = bundle_id.strip()
+        ctx.config.apns_use_sandbox = bool(sandbox)
+        ctx.config.save()
+        ctx.store.log("SYSTEM", "Push notifications configured" if key
+                      else "Push notifications disabled")
+        return {"accepted": True, "configured": bool(ctx.push and ctx.push.configured)}
+
+    def push_test():
+        if not ctx.push or not ctx.push.configured:
+            return {"sent": 0, "error": "push not configured"}
+        sent = ctx.push.notify("Plant Intelligence",
+                               "Push notifications are working.")
+        return {"sent": sent, "error": ctx.push.last_error}
+
     def assistant_config(api_key: str = "", model: str = ""):
         """Set (or clear, with an empty api_key) the cloud model for the
         assistant. The key is persisted only on the board."""
@@ -219,6 +258,9 @@ def register(ui, ctx):
     ui.expose_api("GET", "/api/camera/hls/segment.m4s", camera_hls_segment)
     ui.expose_api("POST", "/api/camera/config", camera_config)
     ui.expose_api("POST", "/api/assistant/config", assistant_config)
+    ui.expose_api("POST", "/api/push/register", push_register)
+    ui.expose_api("POST", "/api/push/config", push_config)
+    ui.expose_api("POST", "/api/push/test", push_test)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
     def _resolve_thread(thread_id: int) -> int:

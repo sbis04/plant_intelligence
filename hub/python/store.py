@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS push_tokens (
+    token TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,               -- alert | activity-start | activity-update
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -231,6 +236,37 @@ class Store:
                 " WHERE id = ?",
                 (now, role, content, thread_id))
             self._db.commit()
+
+    # ---- push tokens ------------------------------------------------------------
+    def push_token_save(self, token: str, kind: str):
+        """Register a device/activity token. An activity-update token belongs
+        to exactly one live activity, so a new one replaces the old."""
+        with self._lock:
+            if kind == "activity-update":
+                self._db.execute("DELETE FROM push_tokens WHERE kind = ?", (kind,))
+            self._db.execute(
+                "INSERT INTO push_tokens (token, kind, updated_at) VALUES (?, ?, ?)"
+                " ON CONFLICT(token) DO UPDATE SET kind = excluded.kind,"
+                " updated_at = excluded.updated_at",
+                (token, kind, _now_iso()))
+            self._db.commit()
+
+    def push_tokens(self, kind: str) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT token FROM push_tokens WHERE kind = ?", (kind,)).fetchall()
+        return [r[0] for r in rows]
+
+    def push_token_delete(self, token: str):
+        with self._lock:
+            self._db.execute("DELETE FROM push_tokens WHERE token = ?", (token,))
+            self._db.commit()
+
+    def push_token_counts(self) -> dict:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT kind, COUNT(*) FROM push_tokens GROUP BY kind").fetchall()
+        return {r[0]: r[1] for r in rows}
 
     def last_watering_end(self) -> Optional[datetime]:
         with self._lock:

@@ -208,7 +208,10 @@ def main():
 
         if now - last["plan"] >= 300:
             last["plan"] = now
-            ctx.store.close_stale_open_rows()   # age-guarded; safe to run anytime
+            # Orphaned rows (a restart mid-watering) can close after just
+            # 2 min when the MCU verifiably reports idle.
+            ctx.store.close_stale_open_rows(
+                max_age_min=15 if ctx.hardware.is_watering() else 2)
             ctx.recompute_plan()
 
         ctx.execute_plan()

@@ -212,24 +212,31 @@ bool readDHT11(float &temp, float &hum) {
   delay(20);                       // >18 ms start signal
   digitalWrite(PIN_DHT, HIGH);
   delayMicroseconds(35);
-  pinMode(PIN_DHT, INPUT);
+  // The DHT bus idles high: use the internal pull-up, so a bare 4-pin
+  // sensor works without an external resistor.
+  pinMode(PIN_DHT, INPUT_PULLUP);
 
-  // Sensor response: ~80 µs low, ~80 µs high
+  // Sensor response: ~80 µs low, ~80 µs high (clones can be slower)
   unsigned long t0 = micros();
-  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 100) return false; }
+  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 250) return false; }
   t0 = micros();
-  while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 100) return false; }
+  while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 200) return false; }
   t0 = micros();
-  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 100) return false; }
+  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 200) return false; }
 
-  // 40 data bits: 50 µs low, then ~27 µs high = 0, ~70 µs high = 1
+  // 40 data bits: 50 µs low, then ~27 µs high = 0, ~70 µs high = 1.
+  // Compare each bit's high time against its own low preamble instead of
+  // an absolute threshold — GPIO call latency then cancels out, which
+  // matters on this core where digitalRead goes through Zephyr.
   for (int i = 0; i < 40; i++) {
     t0 = micros();
-    while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 80)  return false; }
+    while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 200) return false; }
+    unsigned long lowDur = micros() - t0;
     unsigned long hiStart = micros();
-    while (digitalRead(PIN_DHT) == HIGH) { if (micros() - hiStart > 100) return false; }
+    while (digitalRead(PIN_DHT) == HIGH) { if (micros() - hiStart > 250) return false; }
+    unsigned long hiDur = micros() - hiStart;
     data[i / 8] <<= 1;
-    if (micros() - hiStart > 45) data[i / 8] |= 1;
+    if (hiDur > lowDur) data[i / 8] |= 1;
   }
 
   if ((uint8_t)(data[0] + data[1] + data[2] + data[3]) != data[4]) return false;
@@ -392,7 +399,11 @@ void loop() {
   if (now - lastDhtMs >= DHT_PERIOD_MS) {
     lastDhtMs = now;
     float t, h;
-    if (readDHT11(t, h)) {
+    // A single read can lose to RTOS preemption mid-bit; one quick retry
+    // recovers most of those without waiting for the next 10 s cycle.
+    bool ok = readDHT11(t, h);
+    if (!ok) { delay(60); ok = readDHT11(t, h); }
+    if (ok) {
       lastTemp = t; lastHum = h; dhtFailStreak = 0;
       if (dhtFailing) { dhtFailing = false; notifyEvent(10); }
       if (!fanOn && t > FAN_ON_TEMP) {
@@ -400,9 +411,9 @@ void loop() {
       } else if (fanOn && t < FAN_OFF_TEMP) {
         digitalWrite(PIN_RELAY_FAN, RELAY_OFF); fanOn = false; notifyEvent(8);
       }
-    } else if (++dhtFailStreak >= 6 && !dhtFailing) {
-      dhtFailing = true;                 // one event per failure episode;
-      notifyEvent(9);                    // event 10 marks recovery
+    } else if (++dhtFailStreak >= 30 && !dhtFailing) {
+      dhtFailing = true;                 // one event per failure episode
+      notifyEvent(9);                    // (≥5 min solid failure); 10 = recovery
     }
   }
 

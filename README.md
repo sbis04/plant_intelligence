@@ -30,8 +30,12 @@ minimum gap between cycles, regardless of what it's asked to do.
 
 **The Linux side (decisions)** fetches the weather, reads the soil, and
 computes a *plan*: when the next watering should happen and how long it
-should run. Hot days shorten the interval and lengthen the dose; rain in
-the forecast postpones it; dry soil overrides the calendar entirely. Every
+should run. Without a calibrated soil probe it keeps to fixed daily slots
+(07:00 and 17:00) and lets the weather change only the dose — an interval
+extrapolated from the forecast alone would be a guess dressed up as a
+decision. Once the probe is calibrated the cadence goes adaptive on its
+own: hot days shorten the interval and lengthen the dose, rain in the
+forecast postpones it, and dry soil overrides the calendar entirely. Every
 plan carries the list of reasons that produced it.
 
 **The failsafe** is a dead-man's switch on the microcontroller. The Linux
@@ -70,10 +74,15 @@ arduino-app-cli app logs  ~/ArduinoApps/plant-intelligence --follow
 Starting an app compiles and flashes the sketch to the MCU and launches the
 Python side, same as pressing Run in App Lab.
 
-The soil probe ships disabled (`soil_enabled: false`). After installing and
+The soil probe ships disabled (`soil_enabled: false`), which is what puts
+the schedule on its fixed 07:00/17:00 slots. After installing and
 calibrating it (record the raw ADC value dry and submerged, set
 `soil_raw_dry` / `soil_raw_wet`), flip it on — the engine folds soil into
-its decisions automatically.
+its decisions and the adaptive cadence takes over automatically.
+
+The fixed slots are `fixed_times` (default `["07:00", "17:00"]`), and
+`fixed_when_no_soil: false` opts out of them entirely — adaptive cadence
+from the start, probe or no probe.
 
 ## Local API
 

@@ -67,16 +67,34 @@ MCU → Python (`Bridge.notify`):
 
 `decision.py` is pure logic — no I/O — so the cadence math is unit-testable
 off the board. Inputs: soil % (optional), a weather summary, the time of the
-last completed watering, and the clock. Output: a `Plan`:
+last completed watering, and the clock. Output: a `Plan`.
+
+It runs in one of two modes, selected by whether the soil probe reports:
+
+**Fixed (no probe).** Watering happens at fixed daily slots — 07:00 and
+17:00 by default (`fixed_times`), the rhythm the old ESP32 system ran on.
+A slot fires only if it hasn't already been served and wasn't missed by
+more than `fixed_catchup_min` (90 min), so a hub that boots at noon doesn't
+immediately water for a slot it slept through. Weather never moves the
+clock here; it only shortens or lengthens the dose, or skips a slot rain is
+already covering.
+
+**Adaptive (probe calibrated).** Enabling `soil_enabled` switches this on by
+itself — no second setting to remember.
 
 - **Interval** starts at 12 h (the old twice-a-day rhythm) and is scaled by
   forecast: ×0.6 on very hot days, ×2 when rain is likely, ×1.3 when cool.
-- **Duration** starts at 300 s and scales the opposite way.
+- **Duration** starts at 300 s and scales the opposite way (both modes).
 - **Soil overrides the calendar**: wet soil postpones regardless of schedule;
   dry soil waters now (inside the allowed window) regardless of the interval.
 - Watering only starts inside a local-time window (default 05:30–20:00).
-- Every plan carries human-readable `reasons`, surfaced in the dashboard
-  and the API — the system can always explain itself.
+
+The split is deliberate: extrapolating an interval from the forecast alone
+is a guess dressed up as a decision. Once the probe can say the soil is
+actually dry, the adaptive cadence has something real to stand on.
+
+Either way every plan carries human-readable `reasons`, surfaced in the
+dashboard and the API — the system can always explain itself.
 
 ## Failure model
 
@@ -85,7 +103,7 @@ last completed watering, and the clock. Output: a `Plan`:
 | Python process dies | MCU waters 5 min every ~10 h after 14 h of silence |
 | Wi-Fi/LAN down | Everything local continues; only remote clients lose access |
 | Weather API unreachable | Engine runs on neutral cadence; last cache reused |
-| Soil probe absent/miscalibrated | `soil_enabled` off → weather+interval mode |
+| Soil probe absent/miscalibrated | `soil_enabled` off → fixed 07:00/17:00 slots |
 | MCU reset mid-watering | Relays initialize OFF; valve closes by default |
 | Runaway command bug | Firmware cap: 10 min max, enforced below the RPC |
 

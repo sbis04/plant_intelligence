@@ -54,6 +54,16 @@ class Config:
     very_hot_day_c: float = 40.0
     cool_day_c: float = 25.0             # stretches interval, shortens watering
 
+    # --- fixed schedule (used while there is no soil probe) ---------------------
+    # Without a moisture reading the adaptive cadence is extrapolating from
+    # weather alone, which is a guess dressed up as a decision. Until the
+    # probe is calibrated the schedule falls back to fixed daily slots — the
+    # rhythm the old ESP32 system ran on. Enabling the probe restores the
+    # adaptive cadence automatically; no setting to remember to flip back.
+    fixed_when_no_soil: bool = True
+    fixed_times: list = field(default_factory=lambda: ["07:00", "17:00"])
+    fixed_catchup_min: int = 90          # still water if the slot was missed by less
+
     # --- soil probe (disabled until installed & calibrated) ---------------------
     soil_enabled: bool = False
     soil_raw_dry: int = 850              # ADC raw in dry air  (calibrate!)

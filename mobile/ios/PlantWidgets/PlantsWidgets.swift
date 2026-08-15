@@ -229,7 +229,7 @@ private struct GardenStatsWidgetView: View {
     .overlay(alignment: .topTrailing) {
       if snapshot.fanOn == true {
         Image(systemName: "fan.fill")
-          .font(.caption.weight(.semibold))
+          .font(.subheadline.weight(.semibold))
           .foregroundStyle(accent)
           .accessibilityLabel("Fan running")
       }
@@ -247,19 +247,19 @@ private struct GardenStatsWidgetView: View {
   }
 
   private func stat(_ label: String, _ value: String, _ symbol: String) -> some View {
-    HStack(spacing: 7) {
+    HStack(spacing: 9) {
       Image(systemName: symbol)
-        .font(.caption)
+        .font(.subheadline)
         .foregroundStyle(accent)
-        .frame(width: 16)
+        .frame(width: 20)
       VStack(alignment: .leading, spacing: 0) {
         Text(label.uppercased())
-          .font(.system(size: 8, weight: .semibold))
+          .font(.system(size: 9, weight: .semibold))
           .foregroundStyle(.secondary)
         Text(value)
-          .font(.caption.weight(.semibold))
+          .font(.subheadline.weight(.semibold))
           .lineLimit(1)
-          .minimumScaleFactor(0.72)
+          .minimumScaleFactor(0.7)
       }
       Spacer(minLength: 0)
     }

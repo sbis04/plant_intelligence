@@ -9,7 +9,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "2"
+    CURRENT_PROJECT_VERSION: "3"
     DEVELOPMENT_TEAM: P2FZ58Y7VW
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -30,6 +30,8 @@ targets:
     entitlements:
       path: PlantIntelligence/PlantIntelligence.entitlements
       properties:
+        aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
         com.apple.security.application-groups:
           - group.com.souvikbiswas.plants
     settings:

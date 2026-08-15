@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State private var locationResult: String?
     @State private var apiKey = ""
     @State private var assistantResult: String?
+    @State private var pushResult: String?
+    @State private var notificationsAllowed = false
+    @State private var liveActivitiesOn = false
 
     var body: some View {
         @Bindable var app = app
@@ -156,6 +159,47 @@ struct SettingsView: View {
                             .foregroundStyle(Theme.textMuted)
                     }
 
+                    PanelCard(title: "Notifications") {
+                        let push = app.status?.push
+                        kv("On this phone",
+                           notificationsAllowed ? "Allowed" : "Not allowed")
+                        kv("Watering alerts",
+                           push?.configured == true
+                               ? "Pushed by the hub" : "Scheduled on this phone")
+                        if push?.configured == true, let n = push?.devices {
+                            kv("Registered devices", "\(n)")
+                        }
+                        kv("Live Activity", liveActivitiesOn ? "Enabled" : "Off")
+                        HStack {
+                            Button("Test") {
+                                Task {
+                                    guard let client = app.client else { return }
+                                    let sent = (try? await client.pushTest())?.sent ?? 0
+                                    if sent > 0 {
+                                        pushResult = "Sent to \(sent) device\(sent == 1 ? "" : "s") ✓"
+                                    } else {
+                                        NotificationManager.shared.notifyNow(
+                                            title: "Plant Intelligence",
+                                            body: "Local notifications are working.")
+                                        pushResult = "Sent locally ✓"
+                                    }
+                                    Haptics.notification(.success)
+                                }
+                            }
+                            .buttonStyle(.glass)
+                            if let pushResult {
+                                Text(pushResult)
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.accent)
+                            }
+                        }
+                        Text(push?.configured == true
+                             ? "The hub pushes the moment watering starts or stops — including a failsafe run while you're away. A live countdown appears on the lock screen."
+                             : "Planned waterings are scheduled on this phone and work offline. For alerts on manual or failsafe runs, install an APNs key on the hub (see the README).")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textMuted)
+                    }
+
                     PanelCard(title: "About") {
                         kv("System", "Plant Intelligence")
                         kv("Hub", "Arduino UNO Q")
@@ -172,6 +216,10 @@ struct SettingsView: View {
             .background(GardenBackground())
             .topEdgeFade()
             .onAppear { address = app.hubAddress }
+            .task {
+                notificationsAllowed = await NotificationManager.shared.currentlyAllowed()
+                liveActivitiesOn = LiveActivityManager.isSupported
+            }
         }
     }
 

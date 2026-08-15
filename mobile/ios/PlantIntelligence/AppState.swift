@@ -88,9 +88,58 @@ final class AppState {
             status = latestStatus
             link = .live
             cacheForWidgets(latestStatus)
+            reactToWateringState(latestStatus)
         } catch {
             link = .offline
         }
+    }
+
+    // MARK: - Notifications & live activity
+
+    private var wasWatering = false
+
+    /// Watch the watering edge and keep the phone's surfaces in step: raise
+    /// and retire the live activity, and keep the locally scheduled
+    /// notifications aligned with whatever the hub currently plans.
+    private func reactToWateringState(_ response: StatusResponse) {
+        let watering = response.status.isWatering
+        let plan = response.plan
+
+        if watering, !wasWatering {
+            let left = response.status.wateringSecondsLeft ?? plan?.durationS ?? 300
+            // The hub owns the notification; the card is started locally so
+            // it appears instantly when the app is the one watching.
+            LiveActivityManager.start(
+                endsAt: Date().addingTimeInterval(TimeInterval(left)),
+                totalSeconds: plan?.durationS ?? left,
+                trigger: history.first?.trigger ?? "scheduled",
+                note: "",
+                location: response.location?.name ?? "Garden",
+                client: client)
+            // The prediction just came true — don't also fire the local copy.
+            NotificationManager.shared.cancelPlanned()
+        } else if !watering, LiveActivityManager.hasActive {
+            // Covers the ordinary end, and also clears a card orphaned by a
+            // crash or a hub-pushed start we never saw finish.
+            LiveActivityManager.end()
+        }
+        wasWatering = watering
+
+        NotificationManager.shared.syncPlanned(
+            nextWateringAt: plan?.nextWaterDate,
+            durationSeconds: plan?.durationS,
+            isWatering: watering)
+    }
+
+    /// Called once at launch and whenever the hub address changes.
+    func setUpNotifications() async {
+        await NotificationManager.shared.bootstrap()
+        LiveActivityManager.registerPushToStart(with: client)
+    }
+
+    func registerPushToken(_ token: String) async {
+        guard let client else { return }
+        _ = try? await client.registerPush(token: token, kind: "alert")
     }
 
     func refreshActivity() async {

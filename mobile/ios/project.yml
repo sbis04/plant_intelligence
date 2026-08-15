@@ -51,6 +51,10 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        UIBackgroundModes:
+          - remote-notification
         UILaunchScreen: {}
 
   PlantWidgets:

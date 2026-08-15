@@ -8,6 +8,17 @@ struct StatusResponse: Codable {
     var weather: Weather?
     var location: HubLocation?
     var assistant: AssistantInfo?
+    var push: PushInfo?
+}
+
+struct PushInfo: Codable {
+    var configured: Bool?
+    var devices: Int?
+}
+
+struct PushTestResponse: Codable {
+    var sent: Int?
+    var error: String?
 }
 
 struct AssistantInfo: Codable {

@@ -86,9 +86,51 @@ its decisions automatically.
 | POST   | `/api/water`  | Start a manual watering              |
 | POST   | `/api/stop`   | Stop watering                        |
 | POST   | `/api/location` | Set precise coordinates (e.g. phone GPS) |
+| POST   | `/api/push/register` | Register an APNs token from the app  |
+| POST   | `/api/push/config` | Install the APNs auth key            |
+| POST   | `/api/push/test` | Send a test notification               |
 
 A WebSocket `telemetry` event pushes the same status payload every few
 seconds for live clients.
+
+## Notifications
+
+Watering start/end reaches the phone three ways, in increasing order of
+reach:
+
+1. **Scheduled locally.** The app turns the hub's predicted watering time
+   into local notifications. Works offline and needs no setup, but only
+   covers waterings already planned when the app last ran.
+2. **Pushed from the hub.** The board talks to Apple's APNs directly — no
+   Firebase, no relay server — so manual runs and the MCU failsafe reach
+   you with the app closed.
+3. **Live Activity.** A lock-screen card with a self-running countdown for
+   the duration of the watering. The hub can raise it via a push-to-start
+   token even if the app was never opened.
+
+Steps 2 and 3 need an APNs auth key, the one part that can't be automated:
+
+1. developer.apple.com → Certificates, Identifiers & Profiles → **Keys** →
+   add a key with **Apple Push Notifications service (APNs)** enabled.
+   Download the `.p8` (offered once only) and note the **Key ID** and the
+   **Team ID**.
+2. Install it on the board. The key is stored only in `hub/data/config.json`,
+   which is gitignored:
+
+```bash
+curl -X POST "http://plantintelligence.local:7000/api/push/config\
+?key_id=ABC123DEFG&team_id=P2FZ58Y7VW&bundle_id=com.souvikbiswas.plants&sandbox=1" \
+  --data-binary @AuthKey_ABC123DEFG.p8
+```
+
+Use `sandbox=1` for builds run from Xcode and `sandbox=0` for TestFlight or
+the App Store — the two APNs environments issue different device tokens.
+Then open the app on a real device (the simulator is never issued a push
+token) and check Settings → Notifications, or:
+
+```bash
+curl -X POST http://plantintelligence.local:7000/api/push/test
+```
 
 ## Roadmap
 

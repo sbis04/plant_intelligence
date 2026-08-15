@@ -291,5 +291,6 @@ struct PlantsWidgetBundle: WidgetBundle {
   var body: some Widget {
     GardenStatusWidget()
     GardenStatsWidget()
+    WateringLiveActivity()
   }
 }

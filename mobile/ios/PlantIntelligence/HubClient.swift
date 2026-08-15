@@ -137,6 +137,18 @@ struct HubClient: Sendable {
         return (tid, chunks)
     }
 
+    /// Hand the hub an APNs token so it can push watering alerts and raise
+    /// the live activity. `kind`: alert | activity-start | activity-update.
+    func registerPush(token: String, kind: String) async throws -> SimpleResponse {
+        try await post("/api/push/register",
+                       query: ["token": token, "kind": kind],
+                       as: SimpleResponse.self)
+    }
+
+    func pushTest() async throws -> PushTestResponse {
+        try await post("/api/push/test", as: PushTestResponse.self, timeout: 30)
+    }
+
     /// Upload a photo to ride along with the next question.
     func attach(_ jpeg: Data) async throws -> String {
         var req = URLRequest(url: baseURL.appending(path: "/api/chat/attach"))

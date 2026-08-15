@@ -9,7 +9,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
     DEVELOPMENT_TEAM: P2FZ58Y7VW
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -43,7 +43,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         # Landscape stays listed so the camera viewer can rotate; the
         # AppDelegate gate keeps everything else portrait.
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
     info:
       path: PlantIntelligence/Info.plist

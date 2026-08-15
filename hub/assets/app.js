@@ -12,6 +12,7 @@ const STATE_LABELS = {
 
 const fmtC = (v) => (v != null ? `${Number(v).toFixed(1)}°C` : "–");
 const fmtPct = (v) => (v != null ? `${Math.round(v)}%` : "–");
+const BLANK_DETAIL = "\u00a0";
 
 async function refreshStatus() {
   try {
@@ -42,16 +43,20 @@ function render(data) {
   $("location").textContent = loc.name || "set location";
 
   // tiles
-  $("soil").textContent = s.soil_pct != null ? fmtPct(s.soil_pct) : "no probe";
-  $("soil-raw").textContent = s.soil_raw >= 0 ? `raw ${s.soil_raw}` : "not installed";
+  const soilConnected = s.soil_pct != null;
+  $("soil").textContent = soilConnected ? fmtPct(s.soil_pct) : "Not connected";
+  $("soil-raw").textContent = soilConnected && s.soil_raw >= 0
+    ? `raw ${s.soil_raw}` : BLANK_DETAIL;
 
   $("outside").textContent = fmtC(w.temp_now_c);
   $("outside-detail").textContent =
-    w.humidity_now_pct != null ? `humidity ${fmtPct(w.humidity_now_pct)}` : "–";
+    w.humidity_now_pct != null ? `humidity ${fmtPct(w.humidity_now_pct)}` : BLANK_DETAIL;
 
-  $("box").textContent = fmtC(s.box_temperature_c);
-  $("fan").textContent = s.fan_on ? "fan on" : "fan off";
-  $("fan").classList.toggle("on", !!s.fan_on);
+  const boxConnected = s.box_temperature_c != null;
+  $("box").textContent = boxConnected ? fmtC(s.box_temperature_c) : "Not connected";
+  $("fan").textContent = boxConnected
+    ? (s.fan_on ? "fan on" : "fan off") : BLANK_DETAIL;
+  $("fan").classList.toggle("on", boxConnected && !!s.fan_on);
 
   const state = STATE_LABELS[s.watering_state] || "–";
   const left = s.watering_seconds_left;
@@ -89,10 +94,10 @@ function render(data) {
   $("env-max").textContent = fmtC(w.temp_max_next12h);
   $("env-rain").textContent =
     fmtPct(w.precip_prob_max_next12h) + (w.is_raining_now ? " · raining" : "");
-  $("env-box-temp").textContent = fmtC(s.box_temperature_c);
-  $("env-box-hum").textContent = fmtPct(s.box_humidity_pct);
-  $("env-fan").textContent = s.fan_on ? "on" : "off";
-  $("env-fan").classList.toggle("on", !!s.fan_on);
+  $("env-box-temp").textContent = boxConnected ? fmtC(s.box_temperature_c) : "Not connected";
+  $("env-box-hum").textContent = boxConnected ? fmtPct(s.box_humidity_pct) : "Not connected";
+  $("env-fan").textContent = boxConnected ? (s.fan_on ? "on" : "off") : "Not connected";
+  $("env-fan").classList.toggle("on", boxConnected && !!s.fan_on);
 }
 
 async function refreshHistory() {

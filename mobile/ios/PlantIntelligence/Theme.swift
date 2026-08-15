@@ -111,15 +111,14 @@ struct StatTile: View {
                 .foregroundStyle(active ? Theme.accent : .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            if let detail {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
-                    .lineLimit(1)
-            }
+            Text(detail ?? "\u{00A0}")
+                .font(.caption)
+                .foregroundStyle(Theme.textMuted)
+                .lineLimit(1)
+                .accessibilityHidden(detail == nil)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
         .background(Theme.panel, in: .rect(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.line, lineWidth: 1))
     }

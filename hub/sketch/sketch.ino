@@ -203,41 +203,52 @@ void setWaterState(WaterState s) {
 }
 
 // Minimal DHT11 bit-bang read — no library dependency, so nothing to break
-// on the Zephyr core. Returns true and fills temp/hum on success.
+// on the Zephyr core.
+//
+// Two things make this reliable here where a naive port isn't:
+//  - the 40-bit frame is sampled with interrupts OFF. Bits are ~27 µs vs
+//    ~70 µs of high time; a single RTOS thread switch mid-frame corrupts
+//    it, which is exactly the intermittent failure we were seeing.
+//  - bit value comes from POLL COUNTS, not absolute microseconds: each
+//    bit's high span is compared against its own ~50 µs low preamble, so
+//    however slow digitalRead happens to be, the ratio still separates
+//    a 0 from a 1.
+static bool sampleDhtFrame(uint8_t *data) {
+  const unsigned long WAIT_CAP = 3000;   // poll iterations, generous
+
+  unsigned long n = 0;                   // sensor response: ~80 µs low/high
+  while (digitalRead(PIN_DHT) == HIGH) { if (++n > WAIT_CAP) return false; }
+  n = 0;
+  while (digitalRead(PIN_DHT) == LOW)  { if (++n > WAIT_CAP) return false; }
+  n = 0;
+  while (digitalRead(PIN_DHT) == HIGH) { if (++n > WAIT_CAP) return false; }
+
+  for (int i = 0; i < 40; i++) {
+    unsigned long lowCount = 0, hiCount = 0;
+    while (digitalRead(PIN_DHT) == LOW)  { if (++lowCount > WAIT_CAP) return false; }
+    while (digitalRead(PIN_DHT) == HIGH) { if (++hiCount  > WAIT_CAP) return false; }
+    data[i / 8] <<= 1;
+    if (hiCount > lowCount) data[i / 8] |= 1;   // long high = 1
+  }
+  return true;
+}
+
 bool readDHT11(float &temp, float &hum) {
   uint8_t data[5] = {0};
 
   pinMode(PIN_DHT, OUTPUT);
   digitalWrite(PIN_DHT, LOW);
-  delay(20);                       // >18 ms start signal
+  delay(20);                       // >18 ms start signal (needs the RTOS tick)
   digitalWrite(PIN_DHT, HIGH);
   delayMicroseconds(35);
   // The DHT bus idles high: use the internal pull-up, so a bare 4-pin
   // sensor works without an external resistor.
   pinMode(PIN_DHT, INPUT_PULLUP);
 
-  // Sensor response: ~80 µs low, ~80 µs high (clones can be slower)
-  unsigned long t0 = micros();
-  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 250) return false; }
-  t0 = micros();
-  while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 200) return false; }
-  t0 = micros();
-  while (digitalRead(PIN_DHT) == HIGH) { if (micros() - t0 > 200) return false; }
-
-  // 40 data bits: 50 µs low, then ~27 µs high = 0, ~70 µs high = 1.
-  // Compare each bit's high time against its own low preamble instead of
-  // an absolute threshold — GPIO call latency then cancels out, which
-  // matters on this core where digitalRead goes through Zephyr.
-  for (int i = 0; i < 40; i++) {
-    t0 = micros();
-    while (digitalRead(PIN_DHT) == LOW)  { if (micros() - t0 > 200) return false; }
-    unsigned long lowDur = micros() - t0;
-    unsigned long hiStart = micros();
-    while (digitalRead(PIN_DHT) == HIGH) { if (micros() - hiStart > 250) return false; }
-    unsigned long hiDur = micros() - hiStart;
-    data[i / 8] <<= 1;
-    if (hiDur > lowDur) data[i / 8] |= 1;
-  }
+  noInterrupts();                  // ~5 ms of uninterrupted sampling
+  bool ok = sampleDhtFrame(data);
+  interrupts();
+  if (!ok) return false;
 
   if ((uint8_t)(data[0] + data[1] + data[2] + data[3]) != data[4]) return false;
   hum  = data[0];         // DHT11: integer humidity

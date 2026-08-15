@@ -143,14 +143,17 @@ struct GardenView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())],
                   spacing: 10) {
             StatTile(label: "Soil",
-                     value: s?.soilPct.map { "\(Int($0))%" } ?? "no probe",
-                     detail: (s?.soilRaw).flatMap { $0 >= 0 ? "raw \($0)" : nil })
+                     value: s?.soilPct.map { "\(Int($0))%" } ?? "Not connected",
+                     detail: s?.soilPct == nil ? nil
+                         : (s?.soilRaw).flatMap { $0 >= 0 ? "raw \($0)" : nil })
             StatTile(label: "Outside",
                      value: weather?.tempNowC.map { String(format: "%.1f°C", $0) } ?? "–",
                      detail: weather?.humidityNowPct.map { "humidity \(Int($0))%" })
             StatTile(label: "Box",
-                     value: s?.boxTemperatureC.map { String(format: "%.1f°C", $0) } ?? "–",
-                     detail: s?.fanOn == true ? "fan on" : "fan off",
+                     value: s?.boxTemperatureC.map { String(format: "%.1f°C", $0) }
+                         ?? "Not connected",
+                     detail: s?.boxTemperatureC == nil ? nil
+                         : (s?.fanOn == true ? "fan on" : "fan off"),
                      active: s?.fanOn == true)
             StatTile(label: "MCU link",
                      value: s?.mcuSeenSecondsAgo.map { String(format: "%.0fs", $0) } ?? "–",
@@ -194,7 +197,7 @@ struct GardenView: View {
 
     private func weatherCard(_ w: Weather) -> some View {
         PanelCard(title: "Weather") {
-            if let desc = w.description {
+            if let desc = w.displayDescription {
                 Text(desc).font(.subheadline)
             }
             HStack(spacing: 14) {
@@ -246,58 +249,37 @@ struct GardenView: View {
         }
     }
 
-    /// The hero action: Liquid Glass with a living water tint — a translucent
-    /// animated mesh of greens and aquas drifting over the glass.
+    /// The hero action stays translucent so it belongs to the same floating
+    /// control layer as the tab bar. When rain is already doing the work, the
+    /// quieter treatment keeps the manual override from competing with the plan.
     private var waterNowButton: some View {
         Button {
             confirmWater = true
         } label: {
-            Label("Water now", systemImage: "drop.fill")
+            Label(rainHold ? "Water anyway" : "Water now", systemImage: "drop.fill")
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
         }
         .buttonStyle(.plain)
         .background {
-            // Extra frosting: a material layer under the tint deepens the
-            // blur of whatever scrolls behind the glass.
-            Capsule().fill(.ultraThinMaterial)
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                MeshGradient(
-                    width: 3, height: 3,
-                    points: [
-                        [0, 0],
-                        [0.5 + 0.22 * Float(sin(t * 0.7)), 0],
-                        [1, 0],
-                        [0, 0.5 + 0.28 * Float(cos(t * 0.6))],
-                        [0.5 + 0.3 * Float(sin(t * 0.8)),
-                         0.5 + 0.3 * Float(cos(t * 0.9))],
-                        [1, 0.5 - 0.28 * Float(sin(t * 0.5))],
-                        [0, 1],
-                        [0.5 - 0.22 * Float(cos(t * 0.7)), 1],
-                        [1, 1],
-                    ],
-                    colors: [
-                        Color(red: 0.10, green: 0.45, blue: 0.72),
-                        Color(red: 0.18, green: 0.65, blue: 0.90),
-                        Color(red: 0.08, green: 0.52, blue: 0.68),
-                        Color(red: 0.16, green: 0.70, blue: 0.86),
-                        Color(red: 0.24, green: 0.74, blue: 0.96),
-                        Color(red: 0.06, green: 0.38, blue: 0.60),
-                        Color(red: 0.12, green: 0.58, blue: 0.80),
-                        Color(red: 0.20, green: 0.78, blue: 0.92),
-                        Color(red: 0.09, green: 0.48, blue: 0.70),
-                    ])
-                    .opacity(0.55)
-                    .clipShape(Capsule())
-            }
+            Capsule()
+                .fill(.ultraThinMaterial)
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Theme.accent.opacity(rainHold ? 0.10 : 0.22),
+                            Color.cyan.opacity(rainHold ? 0.07 : 0.16),
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
         }
         .glassEffect(.regular, in: .capsule)
-        .shadow(color: Color(red: 0.2, green: 0.6, blue: 0.9).opacity(0.35),
-                radius: 12, y: 4)
+        .shadow(color: Theme.accent.opacity(rainHold ? 0.06 : 0.14), radius: 8, y: 3)
         .disabled(app.link != .live)
         .opacity(app.link == .live ? 1 : 0.55)
     }

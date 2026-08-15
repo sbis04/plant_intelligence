@@ -117,6 +117,35 @@ struct Weather: Codable {
         case precipProbMaxNext12h = "precip_prob_max_next12h"
         case isRainingNow = "is_raining_now"
     }
+
+    /// The forecast provider's descriptions can be long, technical sentences.
+    /// Prefer a short dashboard headline derived from its stable category.
+    var displayDescription: String? {
+        switch category?.uppercased() {
+        case "THUNDERSTORM":
+            isRainingNow == true ? "Thunderstorms with rain" : "Thunderstorms possible"
+        case "RAINY", "RAIN":
+            "Rain"
+        case "DRIZZLE":
+            "Light rain"
+        case "SHOWERS":
+            "Rain showers"
+        case "SUNNY":
+            "Sunny"
+        case "CLEAR":
+            "Clear skies"
+        case "PARTLY_CLOUDY", "PARTLY CLOUDY":
+            "Partly cloudy"
+        case "CLOUDY", "OVERCAST":
+            "Cloudy"
+        case "FOG", "MIST":
+            "Low visibility"
+        case "SNOW", "SNOWY":
+            "Snow"
+        default:
+            description
+        }
+    }
 }
 
 struct HubLocation: Codable {

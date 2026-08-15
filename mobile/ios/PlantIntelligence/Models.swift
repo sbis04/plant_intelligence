@@ -96,14 +96,21 @@ struct Plan: Codable {
     var nextWaterAt: String?
     var intervalH: Double
     var reasons: [String]
+    /// "fixed" while there's no soil probe — the clock decides, not the
+    /// cadence maths. Absent on older hubs, hence optional.
+    var mode: String?
+    var schedule: String?
 
     enum CodingKeys: String, CodingKey {
         case waterNow = "water_now"
         case durationS = "duration_s"
         case nextWaterAt = "next_water_at"
         case intervalH = "interval_h"
-        case reasons
+        case reasons, mode, schedule
     }
+
+    /// Fixed slots aren't a computed cadence — don't present them as one.
+    var isFixed: Bool { mode == "fixed" && !(schedule ?? "").isEmpty }
 
     var nextWaterDate: Date? {
         guard let s = nextWaterAt else { return nil }

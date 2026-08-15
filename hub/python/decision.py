@@ -35,6 +35,8 @@ class Plan:
     next_water_at: Optional[datetime]   # prediction (None only if watering now)
     interval_h: float                   # the computed cadence
     reasons: list = field(default_factory=list)
+    mode: str = "adaptive"              # "fixed" while there is no soil probe
+    schedule: str = ""                  # fixed mode: "7:00 AM, 5:00 PM"
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +45,8 @@ class Plan:
             "next_water_at": self.next_water_at.isoformat() if self.next_water_at else None,
             "interval_h": round(self.interval_h, 1),
             "reasons": self.reasons,
+            "mode": self.mode,
+            "schedule": self.schedule,
         }
 
 
@@ -87,9 +91,14 @@ def _plan_fixed(
     past = [s for s in slots if s <= now]
     next_at = upcoming[0] if upcoming else slots[0] + timedelta(days=1)
     interval_h = 24.0 / len(slots)
+    schedule = ", ".join(_slot_label(s) for s in slots)
 
-    reasons.append("fixed schedule (" + ", ".join(_slot_label(s) for s in slots) +
-                   "): no soil probe yet, so the clock decides")
+    def plan(water_now, next_water_at):
+        return Plan(water_now, duration_s, next_water_at, interval_h, reasons,
+                    mode="fixed", schedule=schedule)
+
+    reasons.append(f"fixed schedule ({schedule}): no soil probe yet, so the "
+                   "clock decides")
 
     if past:
         slot = past[-1]
@@ -108,10 +117,10 @@ def _plan_fixed(
                            "doing the watering")
         else:
             reasons.append(f"the {_slot_label(slot)} watering is due")
-            return Plan(True, duration_s, None, interval_h, reasons)
+            return plan(True, None)
 
     reasons.append(f"next slot at {_slot_label(next_at)}")
-    return Plan(False, duration_s, next_at, interval_h, reasons)
+    return plan(False, next_at)
 
 
 def _snap_into_window(t: datetime, cfg: Config) -> datetime:

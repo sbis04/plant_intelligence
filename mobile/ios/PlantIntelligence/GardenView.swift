@@ -184,7 +184,11 @@ struct GardenView: View {
             Divider().overlay(Theme.line)
             kv("Planned duration",
                plan.map { "\(Int(round(Double($0.durationS) / 60))) min" } ?? "–")
-            kv("Cadence interval", plan.map { "\($0.intervalH.formatted()) h" } ?? "–")
+            if let plan, plan.isFixed {
+                kv("Schedule", plan.schedule ?? "–")
+            } else {
+                kv("Cadence interval", plan.map { "\($0.intervalH.formatted()) h" } ?? "–")
+            }
         }
     }
 

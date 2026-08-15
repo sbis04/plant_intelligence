@@ -84,7 +84,10 @@ function render(data) {
       ul.appendChild(li);
     });
     $("plan-duration").textContent = `${Math.round(plan.duration_s / 60)} min`;
-    $("plan-interval").textContent = `${plan.interval_h} h`;
+    // Fixed slots aren't a computed cadence — don't dress them up as one.
+    const fixed = plan.mode === "fixed" && plan.schedule;
+    $("plan-interval-label").textContent = fixed ? "Schedule" : "Cadence interval";
+    $("plan-interval").textContent = fixed ? plan.schedule : `${plan.interval_h} h`;
   }
 
   // environment card

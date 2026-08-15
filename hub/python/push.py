@@ -70,7 +70,12 @@ class PushService:
     def _post(self, token: str, payload: dict, push_type: str,
               topic_suffix: str = "", priority: str = "10",
               expiration: int = 0) -> bool:
-        """One request to Apple. Returns True on 200; prunes the token on 410."""
+        """Send to Apple, accepting both development and TestFlight tokens.
+
+        APNs returns ``BadDeviceToken`` when a valid token is sent to the
+        wrong environment. Try the other endpoint before treating it as
+        stale so direct installs and TestFlight builds can share one hub.
+        """
         headers = {
             "authorization": f"bearer {self._auth_token()}",
             "apns-topic": self._config.apns_bundle_id + topic_suffix,
@@ -78,25 +83,29 @@ class PushService:
             "apns-priority": priority,
             "apns-expiration": str(expiration),
         }
-        try:
-            r = self._http().post(f"{self._host()}/3/device/{token}",
-                                  headers=headers, content=json.dumps(payload))
-        except Exception as e:
-            self.last_error = f"{type(e).__name__}: {e}"
+        primary = self._host()
+        alternate = PROD_HOST if primary == SANDBOX_HOST else SANDBOX_HOST
+        for attempt, host in enumerate((primary, alternate)):
+            try:
+                r = self._http().post(f"{host}/3/device/{token}",
+                                      headers=headers, content=json.dumps(payload))
+            except Exception as e:
+                self.last_error = f"{type(e).__name__}: {e}"
+                return False
+            if r.status_code == 200:
+                self.last_error = None
+                return True
+            try:
+                reason = r.json().get("reason", "")
+            except Exception:
+                reason = r.text[:120]
+            if attempt == 0 and reason == "BadDeviceToken":
+                continue
+            self.last_error = f"{r.status_code} {reason}"
+            if r.status_code == 410 or reason in ("BadDeviceToken", "Unregistered"):
+                self._store.push_token_delete(token)
+                self._log("SYSTEM", "Dropped a stale push token")
             return False
-        if r.status_code == 200:
-            self.last_error = None
-            return True
-        reason = ""
-        try:
-            reason = r.json().get("reason", "")
-        except Exception:
-            reason = r.text[:120]
-        self.last_error = f"{r.status_code} {reason}"
-        # 410 Unregistered / 400 BadDeviceToken: the token is dead for good.
-        if r.status_code == 410 or reason in ("BadDeviceToken", "Unregistered"):
-            self._store.push_token_delete(token)
-            self._log("SYSTEM", "Dropped a stale push token")
         return False
 
     # ---- notifications ------------------------------------------------------

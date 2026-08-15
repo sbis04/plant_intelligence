@@ -129,7 +129,8 @@ class AppContext:
                 "finished": False,
                 "note": reason[:90],
             }
-            attributes = {"locationName": self.config.location_name or "Garden"}
+            location = self.config.location_name or "Location"
+            attributes = {"locationName": location.split(",", 1)[0].strip() or "Location"}
             titles = {
                 "manual": "Watering started",
                 "scheduled": "Watering started",
@@ -159,7 +160,7 @@ class AppContext:
                 "finished": True,
                 "note": "",
             }
-            self.push.activity_update(state, event="end", dismiss_in_s=90)
+            self.push.activity_update(state, event="end", dismiss_in_s=1)
             nxt = ""
             if self.current_plan and self.current_plan.next_water_at:
                 nxt = " Next: " + self.current_plan.next_water_at.strftime(

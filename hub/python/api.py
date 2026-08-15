@@ -232,12 +232,17 @@ def register(ui, ctx):
             sent = ctx.push.activity_start(
                 {"endsAtEpoch": _t.time() + seconds, "totalSeconds": seconds,
                  "trigger": "scheduled", "finished": False, "note": "Test card"},
-                {"locationName": ctx.config.location_name or "Garden"},
+                {
+                    "locationName": (
+                        (ctx.config.location_name or "Location").split(",", 1)[0].strip()
+                        or "Location"
+                    )
+                },
                 alert={"title": "Watering started", "body": "Test card."})
         elif mode == "end":
             sent = ctx.push.activity_update(
                 {"endsAtEpoch": _t.time(), "totalSeconds": 0, "trigger": "",
-                 "finished": True, "note": ""}, event="end", dismiss_in_s=5)
+                 "finished": True, "note": ""}, event="end", dismiss_in_s=1)
         else:
             sent = ctx.push.notify("Plant Intelligence",
                                    "Push notifications are working.")

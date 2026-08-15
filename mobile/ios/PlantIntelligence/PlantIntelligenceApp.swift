@@ -109,10 +109,14 @@ struct RootView: View {
             // for that.
             Task { await app.setUpNotifications() }
             if UserDefaults.standard.bool(forKey: "demoActivity") {   // dev/testing hook
+                let demoLocation =
+                    UserDefaults.standard.string(forKey: "demoActivityLocation")
+                    ?? app.status?.location?.name
+                    ?? "Location"
                 LiveActivityManager.start(
                     endsAt: Date().addingTimeInterval(240), totalSeconds: 240,
                     trigger: "scheduled", note: "",
-                    location: app.status?.location?.name ?? "Rooftop garden",
+                    location: demoLocation,
                     client: app.client)
             }
             if UserDefaults.standard.bool(forKey: "openAssistant") {   // dev/testing hook

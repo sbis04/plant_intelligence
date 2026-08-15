@@ -14,39 +14,59 @@ struct WateringLiveActivity: Widget {
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          Label {
-            Text(context.attributes.locationName)
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          } icon: {
-            Image(systemName: "drop.fill").foregroundStyle(accent)
+          HStack(spacing: 6) {
+            activitySymbol(context, size: 24, iconSize: 11)
+            Text(context.state.finished ? "Watered" : "Watering")
+              .font(.caption.weight(.semibold))
+              .lineLimit(1)
           }
+          .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
           countdown(context)
             .font(.title3.weight(.semibold).monospacedDigit())
-            .foregroundStyle(accent)
+            .foregroundStyle(water)
+            .padding(.trailing, 6)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          VStack(alignment: .leading, spacing: 6) {
-            progress(context)
-            Text(subtitle(context))
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
+          VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+              Label(context.attributes.locationName, systemImage: "location.fill")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+              Spacer(minLength: 8)
+              Text(statusLabel(context))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(accent.opacity(0.14), in: Capsule())
+            }
+            if !context.state.finished {
+              progress(context)
+              Text("Ends \(context.state.endsAt, style: .time)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
           }
+          .padding(.top, 2)
+          .padding(.horizontal, 6)
         }
       } compactLeading: {
-        Image(systemName: "drop.fill").foregroundStyle(accent)
+        activitySymbol(context, size: 24, iconSize: 11)
       } compactTrailing: {
         countdown(context)
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(accent)
-          .frame(maxWidth: 44)
+          .font(.caption.weight(.semibold).monospacedDigit())
+          .foregroundStyle(water)
+          .frame(width: 44, alignment: .trailing)
       } minimal: {
-        Image(systemName: "drop.fill").foregroundStyle(accent)
+        activitySymbol(context, size: 24, iconSize: 11)
       }
-      .keylineTint(accent)
+      .keylineTint(water)
     }
   }
 
@@ -58,42 +78,68 @@ struct WateringLiveActivity: Widget {
   private func lockScreen(_ context: ActivityViewContext<WateringAttributes>)
     -> some View
   {
-    HStack(spacing: 14) {
-      ZStack {
-        Circle().fill(water.opacity(0.16)).frame(width: 52, height: 52)
-        Image(systemName: context.state.finished ? "checkmark" : "drop.fill")
-          .font(.system(size: 22))
-          .foregroundStyle(water)
-          .symbolEffect(.pulse, isActive: !context.state.finished)
-      }
-      VStack(alignment: .leading, spacing: 4) {
-        Text(context.state.finished ? "Watering finished" : "Watering the garden")
-          .font(.headline)
-        Text(subtitle(context))
-          .font(.caption)
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 12) {
+        activitySymbol(context, size: 48, iconSize: 20)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(context.state.finished ? "Watering complete" : "Watering plants")
+            .font(.headline)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+          HStack(spacing: 5) {
+            Image(systemName: "location.fill")
+            Text(context.attributes.locationName)
+              .lineLimit(1)
+              .minimumScaleFactor(0.72)
+          }
+          .font(.subheadline)
           .foregroundStyle(.secondary)
-          .lineLimit(2)
-        if !context.state.finished {
-          progress(context)
+        }
+        .layoutPriority(1)
+        Spacer(minLength: 8)
+        VStack(alignment: .trailing, spacing: 1) {
+          countdown(context)
+            .font(.title2.weight(.semibold).monospacedDigit())
+            .foregroundStyle(context.state.finished ? accent : water)
+          if !context.state.finished {
+            Text("remaining")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
         }
       }
-      Spacer(minLength: 4)
       if !context.state.finished {
-        countdown(context)
-          .font(.title2.weight(.semibold).monospacedDigit())
-          .foregroundStyle(water)
+        progress(context)
+        HStack {
+          Label(statusLabel(context), systemImage: triggerSymbol(context))
+          Spacer(minLength: 12)
+          Text("Ends \(context.state.endsAt, style: .time)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
     }
-    .padding(16)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 15)
   }
 
   private func countdown(_ context: ActivityViewContext<WateringAttributes>)
     -> some View
   {
-    // Ticks by itself: no push needed while the water runs.
-    Text(timerInterval: Date()...max(context.state.endsAt, Date().addingTimeInterval(1)),
-         countsDown: true)
-      .multilineTextAlignment(.trailing)
+    Group {
+      if context.state.finished {
+        Text("Done")
+      } else {
+        // Ticks by itself: no push needed while the water runs.
+        Text(
+          timerInterval:
+            Date()...max(
+              context.state.endsAt, Date().addingTimeInterval(1)),
+          countsDown: true)
+      }
+    }
+    .lineLimit(1)
+    .multilineTextAlignment(.trailing)
   }
 
   private func progress(_ context: ActivityViewContext<WateringAttributes>)
@@ -110,11 +156,36 @@ struct WateringLiveActivity: Widget {
     .tint(water)
   }
 
-  private func subtitle(_ context: ActivityViewContext<WateringAttributes>) -> String {
-    if context.state.finished { return context.attributes.locationName }
+  private func activitySymbol(
+    _ context: ActivityViewContext<WateringAttributes>,
+    size: CGFloat,
+    iconSize: CGFloat
+  ) -> some View {
+    ZStack {
+      Circle().fill((context.state.finished ? accent : water).opacity(0.16))
+      Circle()
+        .strokeBorder((context.state.finished ? accent : water).opacity(0.24), lineWidth: 1)
+      Image(systemName: context.state.finished ? "checkmark" : "drop.fill")
+        .font(.system(size: iconSize, weight: .semibold))
+        .foregroundStyle(context.state.finished ? accent : water)
+        .symbolEffect(.pulse, isActive: !context.state.finished)
+    }
+    .frame(width: size, height: size)
+    .accessibilityHidden(true)
+  }
+
+  private func statusLabel(_ context: ActivityViewContext<WateringAttributes>) -> String {
+    if context.state.finished { return "Complete" }
     if !context.state.note.isEmpty { return context.state.note }
     let label = context.state.triggerLabel
-    return label.isEmpty ? context.attributes.locationName
-      : "\(label) · \(context.attributes.locationName)"
+    return label.isEmpty ? "In progress" : label
+  }
+
+  private func triggerSymbol(_ context: ActivityViewContext<WateringAttributes>) -> String {
+    switch context.state.trigger {
+    case "manual": "hand.tap.fill"
+    case "failsafe": "shield.fill"
+    default: "calendar.badge.clock"
+    }
   }
 }

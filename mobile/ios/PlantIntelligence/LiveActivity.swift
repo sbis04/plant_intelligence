@@ -69,7 +69,10 @@ enum LiveActivityManager {
       push(state: state, to: id, ending: false)
       return
     }
-    let attributes = WateringAttributes(locationName: location)
+    let place = location.split(separator: ",", maxSplits: 1).first?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let attributes = WateringAttributes(
+      locationName: place.flatMap { $0.isEmpty ? nil : $0 } ?? "Location")
     let content = ActivityContent(
       state: state, staleDate: endsAt.addingTimeInterval(120))
     do {
@@ -144,8 +147,7 @@ enum LiveActivityManager {
         state: state,
         staleDate: ending ? nil : state.endsAt.addingTimeInterval(120))
       if ending {
-        await activity.end(
-          content, dismissalPolicy: .after(.now.addingTimeInterval(90)))
+        await activity.end(content, dismissalPolicy: .immediate)
       } else {
         await activity.update(content)
       }

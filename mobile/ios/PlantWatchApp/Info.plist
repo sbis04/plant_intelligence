@@ -28,7 +28,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connects to your Plant Intelligence hub on your Wi-Fi network.</string>
 	<key>WKCompanionAppBundleIdentifier</key>
-	<string>dev.souvik.PlantIntelligence</string>
+	<string>com.souvikbiswas.plants</string>
 	<key>WKRunsIndependentlyOfCompanionApp</key>
 	<true/>
 </dict>

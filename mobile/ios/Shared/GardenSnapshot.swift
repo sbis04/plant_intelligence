@@ -181,7 +181,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
 }
 
 enum SharedGardenStore {
-  static let suiteName = "group.dev.souvik.PlantIntelligence"
+  static let suiteName = "group.com.souvikbiswas.plants"
   private static let snapshotKey = "gardenSnapshot"
   private static let hubAddressKey = "hubAddress"
 

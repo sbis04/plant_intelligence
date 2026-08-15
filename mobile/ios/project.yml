@@ -1,6 +1,6 @@
 name: PlantIntelligence
 options:
-  bundleIdPrefix: dev.souvik
+  bundleIdPrefix: com.souvikbiswas
   deploymentTarget:
     iOS: "26.0"
     watchOS: "26.0"
@@ -10,6 +10,8 @@ settings:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: P2FZ58Y7VW
+    CODE_SIGN_STYLE: Automatic
 targets:
   PlantIntelligence:
     type: application
@@ -27,9 +29,12 @@ targets:
       - target: PlantWatchApp
     entitlements:
       path: PlantIntelligence/PlantIntelligence.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.souvikbiswas.plants
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence
+        PRODUCT_BUNDLE_IDENTIFIER: com.souvikbiswas.plants
         INFOPLIST_KEY_CFBundleDisplayName: Plants
         # Icon Composer .icon bundle in the sources
         ASSETCATALOG_COMPILER_APPICON_NAME: PlantsIcon
@@ -40,7 +45,6 @@ targets:
         # AppDelegate gate keeps everything else portrait.
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
-        CODE_SIGNING_ALLOWED: "NO"
     info:
       path: PlantIntelligence/Info.plist
       properties:
@@ -61,14 +65,16 @@ targets:
       - path: PlantIntelligence/HubClient.swift
     entitlements:
       path: PlantWidgets/PlantWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.souvikbiswas.plants
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.souvikbiswas.plants.widgets
         PRODUCT_NAME: PlantsWidgets
         GENERATE_INFOPLIST_FILE: YES
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
-        CODE_SIGNING_ALLOWED: "NO"
     info:
       path: PlantWidgets/Info.plist
       properties:
@@ -96,16 +102,18 @@ targets:
       - target: PlantWatchWidgets
     entitlements:
       path: PlantWatchApp/PlantWatchApp.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.souvikbiswas.plants
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.souvikbiswas.plants.watchkitapp
         PRODUCT_NAME: PlantsWatch
         INFOPLIST_KEY_CFBundleDisplayName: Plants
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: dev.souvik.PlantIntelligence
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.souvikbiswas.plants
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: PlantsIcon
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGNING_ALLOWED: "NO"
     info:
       path: PlantWatchApp/Info.plist
       properties:
@@ -113,7 +121,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
-        WKCompanionAppBundleIdentifier: dev.souvik.PlantIntelligence
+        WKCompanionAppBundleIdentifier: com.souvikbiswas.plants
         WKRunsIndependentlyOfCompanionApp: true
 
   PlantWatchWidgets:
@@ -128,14 +136,16 @@ targets:
       - path: PlantIntelligence/HubClient.swift
     entitlements:
       path: PlantWatchWidgets/PlantWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.souvikbiswas.plants
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence.watchkitapp.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.souvikbiswas.plants.watchkitapp.widgets
         PRODUCT_NAME: PlantsWatchWidgets
         GENERATE_INFOPLIST_FILE: YES
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
-        CODE_SIGNING_ALLOWED: "NO"
     info:
       path: PlantWatchWidgets/Info.plist
       properties:

@@ -131,6 +131,12 @@ def compute_plan(
             reasons.append("no watering on record yet")
     else:
         due_at = last_watering_end + timedelta(hours=interval_h)
+        # Rain trumps the calendar. However overdue the schedule is, watering
+        # into rain wastes water — keep pushing the due time while a storm is
+        # here or inbound. A genuinely dry soil reading (urgent) still wins.
+        if rain_expected and now >= due_at:
+            due_at = now + timedelta(hours=6)
+            reasons.append("overdue, but rain is handling it: checking again later")
 
     due_at = _snap_into_window(due_at, cfg)
     in_window = _parse_hhmm(cfg.window_start) <= now.time() <= _parse_hhmm(cfg.window_end)

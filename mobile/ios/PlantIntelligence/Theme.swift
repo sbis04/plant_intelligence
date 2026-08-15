@@ -118,8 +118,8 @@ struct StatTile: View {
                     .lineLimit(1)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
         .background(Theme.panel, in: .rect(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.line, lineWidth: 1))
     }

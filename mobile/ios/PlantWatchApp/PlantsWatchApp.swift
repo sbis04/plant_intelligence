@@ -212,7 +212,12 @@ private struct WatchDashboardView: View {
         .lineLimit(1)
         .accessibilityHidden(detail == nil)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(
+      maxWidth: .infinity,
+      minHeight: 44,
+      maxHeight: 44,
+      alignment: .leading
+    )
     .padding(10)
     .background(panel, in: .rect(cornerRadius: 14))
     .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(line, lineWidth: 1))

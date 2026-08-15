@@ -221,25 +221,18 @@ private struct GardenStatsWidgetView: View {
   private let accent = Color(red: 0.30, green: 0.73, blue: 0.42)
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 9) {
-      HStack {
-        Text("Conditions")
-          .font(.headline)
-        Spacer()
-        if snapshot.fanOn == true {
-          Image(systemName: "fan.fill")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(accent)
-            .accessibilityLabel("Fan running")
-        }
-        Circle()
-          .fill(snapshot.isLive ? accent : Color.red)
-          .frame(width: 7, height: 7)
-      }
-      Divider().overlay(Color.white.opacity(0.08))
+    VStack(alignment: .leading, spacing: 12) {
       stat("Outside", snapshot.outsideTemperatureText, "thermometer.medium")
       stat("Soil", snapshot.soilText, "drop.degreesign")
-      stat("Weather", snapshot.rainText, "cloud.rain")
+      stat("Next watering", nextWateringText, "calendar.badge.clock")
+    }
+    .overlay(alignment: .topTrailing) {
+      if snapshot.fanOn == true {
+        Image(systemName: "fan.fill")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(accent)
+          .accessibilityLabel("Fan running")
+      }
     }
     .containerBackground(for: .widget) {
       LinearGradient(
@@ -254,20 +247,29 @@ private struct GardenStatsWidgetView: View {
   }
 
   private func stat(_ label: String, _ value: String, _ symbol: String) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: 7) {
       Image(systemName: symbol)
         .font(.caption)
         .foregroundStyle(accent)
         .frame(width: 16)
-      Text(label.uppercased())
-        .font(.system(size: 9, weight: .semibold))
-        .foregroundStyle(.secondary)
-      Spacer(minLength: 4)
-      Text(value)
-        .font(.subheadline.weight(.semibold))
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
+      VStack(alignment: .leading, spacing: 0) {
+        Text(label.uppercased())
+          .font(.system(size: 8, weight: .semibold))
+          .foregroundStyle(.secondary)
+        Text(value)
+          .font(.caption.weight(.semibold))
+          .lineLimit(1)
+          .minimumScaleFactor(0.72)
+      }
+      Spacer(minLength: 0)
     }
+  }
+
+  private var nextWateringText: String {
+    if snapshot.waterNow { return "Due now" }
+    guard let next = snapshot.nextWateringAt else { return "Not planned" }
+    return next.formatted(.dateTime.day().month(.abbreviated)) + " · "
+      + next.formatted(date: .omitted, time: .shortened)
   }
 }
 
@@ -279,7 +281,7 @@ private struct GardenStatsWidget: Widget {
       GardenStatsWidgetView(entry: entry)
     }
     .configurationDisplayName("Plants Conditions")
-    .description("See temperature, soil, and weather at a glance.")
+    .description("See temperature, soil, and the next watering at a glance.")
     .supportedFamilies([.systemSmall])
   }
 }

@@ -53,6 +53,7 @@ targets:
         NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
         NSSupportsLiveActivities: true
         NSSupportsLiveActivitiesFrequentUpdates: true
+        ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
           - remote-notification
         UILaunchScreen: {}

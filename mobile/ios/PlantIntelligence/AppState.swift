@@ -1,12 +1,17 @@
 import SwiftUI
 import UIKit
+import WidgetKit
 
 @MainActor
 @Observable
 final class AppState {
     // Persisted hub address — LAN IP or hostname of the UNO Q.
     var hubAddress: String {
-        didSet { UserDefaults.standard.set(hubAddress, forKey: "hubAddress") }
+        didSet {
+            UserDefaults.standard.set(hubAddress, forKey: "hubAddress")
+            SharedGardenStore.hubAddress = hubAddress
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     enum Link: Equatable { case connecting, live, offline }
@@ -40,6 +45,7 @@ final class AppState {
     }
 
     private var pollTask: Task<Void, Never>?
+    private var lastWidgetReload = Date.distantPast
 
     init() {
         let stored = UserDefaults.standard.string(forKey: "hubAddress")
@@ -50,6 +56,7 @@ final class AppState {
         } else {
             hubAddress = "plantintelligence.local:7000"
         }
+        SharedGardenStore.hubAddress = hubAddress
     }
 
     var client: HubClient? { HubClient(address: hubAddress) }
@@ -77,8 +84,10 @@ final class AppState {
     func refreshStatus() async {
         guard let client else { link = .offline; return }
         do {
-            status = try await client.status()
+            let latestStatus = try await client.status()
+            status = latestStatus
             link = .live
+            cacheForWidgets(latestStatus)
         } catch {
             link = .offline
         }
@@ -97,12 +106,21 @@ final class AppState {
         _ = try? await client.water()
         await refreshStatus()
         await refreshActivity()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     func stopWatering() async {
         guard let client else { return }
         _ = try? await client.stop()
         await refreshStatus()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private func cacheForWidgets(_ response: StatusResponse) {
+        SharedGardenStore.save(GardenSnapshot(response: response))
+        guard Date().timeIntervalSince(lastWidgetReload) >= 15 * 60 else { return }
+        lastWidgetReload = Date()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     // MARK: - Assistant

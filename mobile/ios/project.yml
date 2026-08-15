@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: dev.souvik
   deploymentTarget:
     iOS: "26.0"
+    watchOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -17,9 +18,15 @@ targets:
       - path: PlantIntelligence
         excludes:
           - "PlantsIcon.icon"
+      - path: Shared
       - path: PlantIntelligence/PlantsIcon.icon
         type: file
         buildPhase: resources
+    dependencies:
+      - target: PlantWidgets
+      - target: PlantWatchApp
+    entitlements:
+      path: PlantIntelligence/PlantIntelligence.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence
@@ -41,3 +48,100 @@ targets:
           NSAllowsArbitraryLoads: true
         NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
         UILaunchScreen: {}
+
+  PlantWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PlantWidgets
+        excludes:
+          - "PlantWidgets.entitlements"
+      - path: Shared
+      - path: PlantIntelligence/Models.swift
+      - path: PlantIntelligence/HubClient.swift
+    entitlements:
+      path: PlantWidgets/PlantWidgets.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence.widgets
+        PRODUCT_NAME: PlantsWidgets
+        GENERATE_INFOPLIST_FILE: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: PlantWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Plants
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  PlantWatchApp:
+    type: application
+    platform: watchOS
+    sources:
+      - path: PlantWatchApp
+        excludes:
+          - "PlantWatchApp.entitlements"
+      - path: Shared
+      - path: PlantIntelligence/Models.swift
+      - path: PlantIntelligence/HubClient.swift
+      - path: PlantIntelligence/PlantsIcon.icon
+        type: file
+        buildPhase: resources
+    dependencies:
+      - target: PlantWatchWidgets
+    entitlements:
+      path: PlantWatchApp/PlantWatchApp.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence.watchkitapp
+        PRODUCT_NAME: PlantsWatch
+        INFOPLIST_KEY_CFBundleDisplayName: Plants
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: dev.souvik.PlantIntelligence
+        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: PlantsIcon
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: PlantWatchApp/Info.plist
+      properties:
+        CFBundleDisplayName: Plants
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
+        WKCompanionAppBundleIdentifier: dev.souvik.PlantIntelligence
+        WKRunsIndependentlyOfCompanionApp: true
+
+  PlantWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: PlantWatchWidgets
+        excludes:
+          - "PlantWatchWidgets.entitlements"
+      - path: Shared
+      - path: PlantIntelligence/Models.swift
+      - path: PlantIntelligence/HubClient.swift
+    entitlements:
+      path: PlantWatchWidgets/PlantWatchWidgets.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.souvik.PlantIntelligence.watchkitapp.widgets
+        PRODUCT_NAME: PlantsWatchWidgets
+        GENERATE_INFOPLIST_FILE: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        CODE_SIGNING_ALLOWED: "NO"
+    info:
+      path: PlantWatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Plants
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Connects to your Plant Intelligence hub on your Wi-Fi network."
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension

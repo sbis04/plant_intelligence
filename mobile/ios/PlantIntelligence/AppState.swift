@@ -102,18 +102,42 @@ final class AppState {
     // MARK: - Actions
 
     func waterNow() async {
-        guard let client else { return }
-        _ = try? await client.water()
-        await refreshStatus()
-        await refreshActivity()
-        WidgetCenter.shared.reloadAllTimelines()
+        guard let client else {
+            Haptics.notification(.error)
+            return
+        }
+        do {
+            let response = try await client.water()
+            guard response.accepted != false, response.error == nil else {
+                Haptics.notification(.error)
+                return
+            }
+            await refreshStatus()
+            await refreshActivity()
+            WidgetCenter.shared.reloadAllTimelines()
+            Haptics.notification(.success)
+        } catch {
+            Haptics.notification(.error)
+        }
     }
 
     func stopWatering() async {
-        guard let client else { return }
-        _ = try? await client.stop()
-        await refreshStatus()
-        WidgetCenter.shared.reloadAllTimelines()
+        guard let client else {
+            Haptics.notification(.error)
+            return
+        }
+        do {
+            let response = try await client.stop()
+            guard response.accepted != false, response.error == nil else {
+                Haptics.notification(.error)
+                return
+            }
+            await refreshStatus()
+            WidgetCenter.shared.reloadAllTimelines()
+            Haptics.notification(.success)
+        } catch {
+            Haptics.notification(.error)
+        }
     }
 
     private func cacheForWidgets(_ response: StatusResponse) {
@@ -169,6 +193,9 @@ final class AppState {
             }
             if replyIndex == nil {
                 messages.append(ChatMessage(role: .assistant, text: "No reply from the hub."))
+                Haptics.notification(.warning)
+            } else {
+                Haptics.notification(.success)
             }
         } catch {
             if Task.isCancelled {
@@ -177,12 +204,15 @@ final class AppState {
                 } else {
                     messages.append(ChatMessage(role: .assistant, text: "[stopped]"))
                 }
+                Haptics.notification(.warning)
             } else if let i = replyIndex {
                 messages[i].text += "\n[connection lost mid-reply]"
+                Haptics.notification(.error)
             } else {
                 messages.append(ChatMessage(
                     role: .assistant,
                     text: "Couldn't reach the hub — is the phone on the same Wi-Fi?"))
+                Haptics.notification(.error)
             }
         }
         assistantBusy = false

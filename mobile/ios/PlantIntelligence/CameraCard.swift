@@ -26,7 +26,10 @@ struct CameraCard: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, -16)   // bleed past the scroll padding
                     .contentShape(.rect)
-                    .onTapGesture { viewerOpen = true }
+                    .onTapGesture {
+                        Haptics.impact(.light)
+                        viewerOpen = true
+                    }
             } else {
                 Color.clear.frame(height: 1)   // keeps the view (and task) alive
             }
@@ -128,6 +131,7 @@ private struct CameraViewer: View {
                 }
                 .buttonStyle(.glass)
                 Button {
+                    Haptics.impact(.light)
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
@@ -189,6 +193,7 @@ private struct CameraViewer: View {
     }
 
     private func rotate() {
+        Haptics.impact(.medium, intensity: 0.8)
         landscape.toggle()
         AppDelegate.allowLandscape = landscape
         requestOrientation(landscape ? .landscapeRight : .portrait)

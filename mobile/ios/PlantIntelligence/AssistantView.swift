@@ -64,6 +64,7 @@ struct AssistantOverlay: View {
             Menu {
                 ForEach(app.threads) { thread in
                     Button {
+                        Haptics.selection()
                         Task { await app.openThread(thread.id) }
                     } label: {
                         if thread.id == app.currentThreadId {
@@ -76,6 +77,7 @@ struct AssistantOverlay: View {
                 if app.currentThreadId != 0 {
                     Divider()
                     Button("Delete conversation", role: .destructive) {
+                        Haptics.notification(.warning)
                         Task { await app.deleteCurrentThread() }
                     }
                 }
@@ -88,6 +90,7 @@ struct AssistantOverlay: View {
             .disabled(app.assistantBusy || app.threads.isEmpty)
             Spacer()
             Button {
+                Haptics.impact(.soft)
                 app.newThread()
             } label: {
                 Image(systemName: "square.and.pencil")
@@ -115,6 +118,7 @@ struct AssistantOverlay: View {
             VStack(spacing: 8) {
                 ForEach(suggestions, id: \.self) { s in
                     Button {
+                        Haptics.impact(.light)
                         Task { await app.ask(s) }
                     } label: {
                         Text(s)

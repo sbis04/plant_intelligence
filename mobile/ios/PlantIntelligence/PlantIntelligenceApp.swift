@@ -33,6 +33,7 @@ struct RootView: View {
     @Environment(AppState.self) private var app
     @State private var selection =
         UserDefaults.standard.integer(forKey: "launchTab")   // dev/testing hook
+    @State private var suppressNextTabHaptic = false
 
     var body: some View {
         TabView(selection: $selection) {
@@ -57,7 +58,13 @@ struct RootView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .onChange(of: selection) {
+            if suppressNextTabHaptic {
+                suppressNextTabHaptic = false
+                return
+            }
+            Haptics.selection()
             if selection == 1 {
+                suppressNextTabHaptic = true
                 selection = 0
                 withAnimation(.snappy) { app.assistantOpen.toggle() }
             }

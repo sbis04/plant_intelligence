@@ -1,5 +1,6 @@
 import Observation
 import SwiftUI
+import WatchKit
 import WidgetKit
 
 @main
@@ -33,11 +34,24 @@ private final class WatchGardenModel {
   }
 
   private func perform(_ action: (HubClient) async throws -> SimpleResponse) async {
-    guard !busy, let client = HubClient(address: SharedGardenStore.hubAddress) else { return }
+    guard !busy, let client = HubClient(address: SharedGardenStore.hubAddress) else {
+      WKInterfaceDevice.current().play(.failure)
+      return
+    }
     busy = true
-    _ = try? await action(client)
-    snapshot = await GardenSnapshotService.fetch()
-    WidgetCenter.shared.reloadAllTimelines()
+    do {
+      let response = try await action(client)
+      guard response.accepted != false, response.error == nil else {
+        WKInterfaceDevice.current().play(.failure)
+        busy = false
+        return
+      }
+      snapshot = await GardenSnapshotService.fetch()
+      WidgetCenter.shared.reloadAllTimelines()
+      WKInterfaceDevice.current().play(.success)
+    } catch {
+      WKInterfaceDevice.current().play(.failure)
+    }
     busy = false
   }
 }
@@ -254,6 +268,7 @@ private struct WatchDashboardView: View {
   private var action: some View {
     if garden.snapshot.isWatering {
       Button {
+        WKInterfaceDevice.current().play(.click)
         Task { await garden.stop() }
       } label: {
         Label("Stop watering", systemImage: "stop.fill")
@@ -264,6 +279,7 @@ private struct WatchDashboardView: View {
       .disabled(garden.busy)
     } else {
       Button {
+        WKInterfaceDevice.current().play(.click)
         confirmWater = true
       } label: {
         Label(

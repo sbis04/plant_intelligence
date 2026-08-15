@@ -27,6 +27,7 @@ struct ActivityView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .onChange(of: section) { Haptics.selection() }
 
                     switch section {
                     case .waterings: wateringList

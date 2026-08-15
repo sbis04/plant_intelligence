@@ -31,11 +31,13 @@ struct SettingsView: View {
                             .background(Theme.bg, in: .rect(cornerRadius: 10))
                         HStack {
                             Button("Save & test") {
+                                Haptics.impact(.light)
                                 app.hubAddress = address
                                 Task {
                                     await app.refreshStatus()
                                     testResult = app.link == .live
                                         ? "Connected ✓" : "Could not reach the hub"
+                                    Haptics.notification(app.link == .live ? .success : .error)
                                 }
                             }
                             .buttonStyle(.glassProminent)
@@ -61,14 +63,20 @@ struct SettingsView: View {
                             .background(Theme.bg, in: .rect(cornerRadius: 10))
                         HStack {
                             Button("Set location") {
+                                Haptics.impact(.light)
                                 Task {
-                                    guard let client = app.client else { return }
+                                    guard let client = app.client else {
+                                        Haptics.notification(.error)
+                                        return
+                                    }
                                     let res = try? await client.setLocation(place: place)
                                     locationResult = res?.accepted == true
                                         ? "Set to \(res?.name ?? place) ✓"
                                         : (res?.error ?? "failed")
                                     if res?.accepted == true { place = "" }
                                     await app.refreshStatus()
+                                    Haptics.notification(
+                                        res?.accepted == true ? .success : .error)
                                 }
                             }
                             .buttonStyle(.glass)
@@ -101,23 +109,36 @@ struct SettingsView: View {
                             .background(Theme.bg, in: .rect(cornerRadius: 10))
                         HStack {
                             Button("Save key") {
+                                Haptics.impact(.light)
                                 Task {
-                                    guard let client = app.client else { return }
+                                    guard let client = app.client else {
+                                        Haptics.notification(.error)
+                                        return
+                                    }
                                     let res = try? await client.setAssistantConfig(apiKey: apiKey)
                                     assistantResult = res?.accepted == true ? "Saved ✓" : "failed"
                                     if res?.accepted == true { apiKey = "" }
                                     await app.refreshStatus()
+                                    Haptics.notification(
+                                        res?.accepted == true ? .success : .error)
                                 }
                             }
                             .buttonStyle(.glass)
                             .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
                             if app.status?.assistant?.cloudConfigured == true {
                                 Button("Remove") {
+                                    Haptics.impact(.medium, intensity: 0.8)
                                     Task {
-                                        guard let client = app.client else { return }
-                                        _ = try? await client.setAssistantConfig(apiKey: "")
-                                        assistantResult = "Removed — on-device only"
+                                        guard let client = app.client else {
+                                            Haptics.notification(.error)
+                                            return
+                                        }
+                                        let res = try? await client.setAssistantConfig(apiKey: "")
+                                        assistantResult = res?.accepted == true
+                                            ? "Removed — on-device only" : "failed"
                                         await app.refreshStatus()
+                                        Haptics.notification(
+                                            res?.accepted == true ? .success : .error)
                                     }
                                 }
                                 .buttonStyle(.glass)

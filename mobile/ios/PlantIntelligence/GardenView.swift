@@ -225,6 +225,7 @@ struct GardenView: View {
             HStack(spacing: 12) {
                 if s?.isWatering == true {
                     Button {
+                        Haptics.impact(.rigid)
                         Task { await app.stopWatering() }
                     } label: {
                         Label("Stop watering", systemImage: "stop.fill")
@@ -242,7 +243,10 @@ struct GardenView: View {
         .padding(.bottom, 4)
         .confirmationDialog("Water the garden now?", isPresented: $confirmWater,
                             titleVisibility: .visible) {
-            Button("Start watering") { Task { await app.waterNow() } }
+            Button("Start watering") {
+                Haptics.impact(.rigid)
+                Task { await app.waterNow() }
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Runs the pump for the planned duration. The hub enforces its own safety limits.")
@@ -254,6 +258,7 @@ struct GardenView: View {
     /// quieter treatment keeps the manual override from competing with the plan.
     private var waterNowButton: some View {
         Button {
+            Haptics.impact(.medium, intensity: 0.85)
             confirmWater = true
         } label: {
             Label(rainHold ? "Water anyway" : "Water now", systemImage: "drop.fill")
@@ -297,6 +302,7 @@ struct GardenView: View {
                             .frame(width: 56, height: 42)
                             .clipShape(.rect(cornerRadius: 8))
                         Button {
+                            Haptics.impact(.soft)
                             app.pendingAttachment = nil
                         } label: {
                             Image(systemName: "xmark.circle.fill")
@@ -324,6 +330,7 @@ struct GardenView: View {
                         .onSubmit(send)
                 if app.assistantBusy {
                     Button {
+                        Haptics.impact(.rigid)
                         app.stopAsking()
                     } label: {
                         Image(systemName: "stop.circle.fill")
@@ -355,13 +362,16 @@ struct GardenView: View {
                 if let data = try? await item.loadTransferable(type: Data.self),
                    let image = UIImage(data: data) {
                     app.setAttachment(image)
+                    Haptics.notification(.success)
                 }
             }
         }
     }
 
     private func send() {
-        let text = draft
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        Haptics.impact(.soft)
         draft = ""
         inputFocused = false
         Task { await app.ask(text) }

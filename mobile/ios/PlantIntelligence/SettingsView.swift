@@ -49,7 +49,7 @@ struct SettingsView: View {
                         }
                     }
 
-                    PanelCard(title: "Garden location") {
+                    PanelCard(title: "Location") {
                         if let loc = app.status?.location {
                             kv("Current", loc.name?.isEmpty == false ? loc.name! : "unknown")
                             kv("Source", sourceLabel(loc.source))

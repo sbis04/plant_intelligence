@@ -103,16 +103,33 @@ struct GardenView: View {
     // The hero states only what the system actually knows: its irrigation
     // status. A "plant health" claim belongs here only once something real
     // (soil probe, photo diagnosis) backs it.
+    //
+    // The hub decides what state it is in and says so in `plan.status`. This
+    // used to be inferred here by looking for the word "rain" anywhere in
+    // the reasons prose, which meant the hero read "Waiting out the rain"
+    // through an entire monsoon regardless of the actual reason, and stayed
+    // silent about wet soil or a garden watered by hand.
+    private var status: String {
+        plan?.status ?? ""
+    }
+
+    /// Still needed for the button's wording and tint: any hold at all.
     private var rainHold: Bool {
-        plan?.reasons.contains { $0.localizedCaseInsensitiveContains("rain") } ?? false
+        ["rain_hold", "already_wet", "soil_hold"].contains(status)
     }
 
     private var heroSymbol: String {
         guard app.link == .live, let s else { return "antenna.radiowaves.left.and.right.slash" }
         if s.isWatering { return "drop.fill" }
-        if plan?.waterNow == true { return "drop.circle" }
-        if rainHold { return "cloud.rain.fill" }
-        return "leaf.fill"
+        switch status {
+        case "due": return "drop.circle"
+        case "rain_hold": return "cloud.rain.fill"
+        case "already_wet": return "humidity.fill"
+        case "soil_hold": return "drop.triangle.fill"
+        case "missed": return "clock.badge.exclamationmark"
+        case "done": return "checkmark.circle.fill"
+        default: return "leaf.fill"
+        }
     }
 
     private var heroTitle: String {
@@ -122,9 +139,16 @@ struct GardenView: View {
             return String(format: "Watering %d:%02d", left / 60, left % 60)
         }
         guard plan != nil else { return "Idle" }
-        if plan?.waterNow == true { return "Watering due" }
-        if rainHold { return "Waiting out the rain" }
-        return "On schedule"
+        switch status {
+        case "due": return "Watering due"
+        case "rain_hold": return "Waiting out the rain"
+        case "already_wet": return "Already watered"
+        case "soil_hold": return "Soil still damp"
+        case "missed": return "Missed a watering"
+        case "done": return "Watered today"
+        case "scheduled": return "On schedule"
+        default: return plan?.waterNow == true ? "Watering due" : "On schedule"
+        }
     }
 
     private var heroSubtitle: String {

@@ -100,13 +100,19 @@ struct Plan: Codable {
     /// cadence maths. Absent on older hubs, hence optional.
     var mode: String?
     var schedule: String?
+    /// What the hub is actually doing, decided by the hub rather than
+    /// guessed at from the reasons text: due, rain_hold, already_wet,
+    /// missed, done, soil_hold, scheduled. `headline` is the same thing
+    /// said in a sentence. Both absent on older hubs, hence optional.
+    var status: String?
+    var headline: String?
 
     enum CodingKeys: String, CodingKey {
         case waterNow = "water_now"
         case durationS = "duration_s"
         case nextWaterAt = "next_water_at"
         case intervalH = "interval_h"
-        case reasons, mode, schedule
+        case reasons, mode, schedule, status, headline
     }
 
     /// Fixed slots aren't a computed cadence — don't present them as one.

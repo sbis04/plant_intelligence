@@ -7,7 +7,10 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
   var wateringSecondsLeft: Int?
   var planDurationSeconds: Int?
   var waterNow: Bool
-  var rainHold: Bool
+  /// The hub's own verdict: due, rain_hold, already_wet, missed, done,
+  /// soil_hold, scheduled. Empty from an older hub, which falls back to
+  /// waterNow alone.
+  var planStatus: String
   var nextWateringAt: Date?
   var outsideTemperatureC: Double?
   var outsideHumidityPct: Double?
@@ -27,7 +30,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     wateringSecondsLeft: Int?,
     planDurationSeconds: Int?,
     waterNow: Bool,
-    rainHold: Bool,
+    planStatus: String,
     nextWateringAt: Date?,
     outsideTemperatureC: Double?,
     outsideHumidityPct: Double?,
@@ -46,7 +49,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     self.wateringSecondsLeft = wateringSecondsLeft
     self.planDurationSeconds = planDurationSeconds
     self.waterNow = waterNow
-    self.rainHold = rainHold
+    self.planStatus = planStatus
     self.nextWateringAt = nextWateringAt
     self.outsideTemperatureC = outsideTemperatureC
     self.outsideHumidityPct = outsideHumidityPct
@@ -71,10 +74,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     wateringSecondsLeft = status.wateringSecondsLeft
     planDurationSeconds = plan?.durationS
     waterNow = plan?.waterNow == true
-    rainHold =
-      plan?.reasons.contains {
-        $0.localizedCaseInsensitiveContains("rain")
-      } == true
+    planStatus = plan?.status ?? ""
     nextWateringAt = plan?.nextWaterDate
     outsideTemperatureC = weather?.tempNowC
     outsideHumidityPct = weather?.humidityNowPct
@@ -95,7 +95,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     wateringSecondsLeft: nil,
     planDurationSeconds: 240,
     waterNow: false,
-    rainHold: true,
+    planStatus: "rain_hold",
     nextWateringAt: Calendar.current.date(byAdding: .day, value: 2, to: Date()),
     outsideTemperatureC: 29.9,
     outsideHumidityPct: 82,
@@ -116,7 +116,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     wateringSecondsLeft: nil,
     planDurationSeconds: nil,
     waterNow: false,
-    rainHold: false,
+    planStatus: "",
     nextWateringAt: nil,
     outsideTemperatureC: nil,
     outsideHumidityPct: nil,
@@ -130,6 +130,12 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     isRainingNow: false
   )
 
+  /// Any reason the hub is holding off, whatever it happens to be. Drives
+  /// the "Water anyway" wording rather than the hero text.
+  var isHolding: Bool {
+    ["rain_hold", "already_wet", "soil_hold"].contains(planStatus)
+  }
+
   var statusTitle: String {
     guard isLive else { return "Hub offline" }
     if isWatering, let wateringSecondsLeft {
@@ -137,17 +143,30 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
         format: "Watering %d:%02d",
         wateringSecondsLeft / 60, wateringSecondsLeft % 60)
     }
-    if waterNow { return "Watering due" }
-    if rainHold { return "Waiting out the rain" }
-    return "On schedule"
+    switch planStatus {
+    case "due": return "Watering due"
+    case "rain_hold": return "Waiting out the rain"
+    case "already_wet": return "Already watered"
+    case "soil_hold": return "Soil still damp"
+    case "missed": return "Missed a watering"
+    case "done": return "Watered today"
+    case "scheduled": return "On schedule"
+    default: return waterNow ? "Watering due" : "On schedule"
+    }
   }
 
   var statusSymbol: String {
     guard isLive else { return "antenna.radiowaves.left.and.right.slash" }
     if isWatering { return "drop.fill" }
-    if waterNow { return "drop.circle.fill" }
-    if rainHold { return "cloud.rain.fill" }
-    return "leaf.fill"
+    switch planStatus {
+    case "due": return "drop.circle.fill"
+    case "rain_hold": return "cloud.rain.fill"
+    case "already_wet": return "humidity.fill"
+    case "soil_hold": return "drop.triangle.fill"
+    case "missed": return "clock.badge.exclamationmark"
+    case "done": return "checkmark.circle.fill"
+    default: return waterNow ? "drop.circle.fill" : "leaf.fill"
+    }
   }
 
   var nextWateringShort: String {

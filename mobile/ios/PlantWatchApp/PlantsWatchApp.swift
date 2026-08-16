@@ -245,7 +245,7 @@ private struct WatchDashboardView: View {
         .foregroundStyle(muted)
       Text(nextWateringDateText)
         .font(.subheadline.weight(.semibold))
-      if garden.snapshot.rainHold {
+      if garden.snapshot.isHolding {
         Label("Rain is pausing the schedule", systemImage: "cloud.rain.fill")
           .font(.system(size: 9))
           .foregroundStyle(muted)
@@ -283,7 +283,7 @@ private struct WatchDashboardView: View {
         confirmWater = true
       } label: {
         Label(
-          garden.snapshot.rainHold ? "Water anyway" : "Water now",
+          garden.snapshot.isHolding ? "Water anyway" : "Water now",
           systemImage: "drop.fill"
         )
         .frame(maxWidth: .infinity)

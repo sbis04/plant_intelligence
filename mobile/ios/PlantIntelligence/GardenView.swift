@@ -125,7 +125,7 @@ struct GardenView: View {
         case "due": return "drop.circle"
         case "rain_hold": return "cloud.rain.fill"
         case "already_wet": return "humidity.fill"
-        case "soil_hold": return "drop.triangle.fill"
+        case "soil_hold": return "drop.fill"
         case "missed": return "clock.badge.exclamationmark"
         case "done": return "checkmark.circle.fill"
         default: return "leaf.fill"

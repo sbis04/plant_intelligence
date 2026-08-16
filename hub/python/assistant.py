@@ -17,6 +17,7 @@ together. No system role, no server-side memory — nothing to get poisoned.
 import base64
 import json
 import threading
+import urllib.error
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -60,6 +61,10 @@ class Assistant:
         )
         self.last_backend = "local"
         self.busy = False   # drives the board's "thinking" LED animation
+        # cloud_llm_model is an evergreen alias, so the model underneath
+        # changes without notice — and with it, which generation knobs it
+        # accepts. Dropped permanently the first time one is rejected.
+        self._thinking_ok = True
         # The brick allows one generation at a time; concurrent requests
         # (dashboard + phone) queue here instead of erroring.
         self._lock = threading.Lock()
@@ -167,23 +172,44 @@ class Assistant:
             parts.append({"inline_data": {
                 "mime_type": "image/jpeg",
                 "data": base64.b64encode(self._shrink(attachment)).decode()}})
-        body = json.dumps({
-            "contents": [{"parts": parts}],
-            # Generous cap: Gemini's hidden thinking tokens count against
-            # this limit, and a tight one truncates the visible answer.
-            # Minimal thinking: first token in ~2 s instead of ~20 s — for
-            # grounded garden Q&A the deep-reasoning mode buys nothing.
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192,
-                                 "thinkingConfig": {"thinkingLevel": "minimal"}},
-        }).encode()
-        req = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{cfg.cloud_llm_model}:{path}",
-            data=body, method="POST",
-            headers={"Content-Type": "application/json",
-                     "x-goog-api-key": cfg.cloud_llm_api_key})
-        # The short timeout doubles as the "is the internet up?" check.
-        return urllib.request.urlopen(req, timeout=15)
+        def send(gen_config):
+            body = json.dumps({"contents": [{"parts": parts}],
+                               "generationConfig": gen_config}).encode()
+            req = urllib.request.Request(
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{cfg.cloud_llm_model}:{path}",
+                data=body, method="POST",
+                headers={"Content-Type": "application/json",
+                         "x-goog-api-key": cfg.cloud_llm_api_key})
+            # The short timeout doubles as the "is the internet up?" check.
+            return urllib.request.urlopen(req, timeout=15)
+
+        # Generous cap: Gemini's hidden thinking tokens count against this
+        # limit, and a tight one truncates the visible answer. Low thinking:
+        # first token in ~2 s instead of ~20 s — for grounded garden Q&A the
+        # deep-reasoning mode buys nothing.
+        gen = {"temperature": 0.3, "maxOutputTokens": 8192}
+        if self._thinking_ok:
+            gen["thinkingConfig"] = {"thinkingLevel": "low"}
+        try:
+            return send(gen)
+        except urllib.error.HTTPError as e:
+            # A knob this model no longer takes must not strand every
+            # question on the slow on-device fallback: drop it and go on.
+            if e.code != 400 or not self._thinking_ok:
+                raise
+            self._thinking_ok = False
+            detail = ""
+            try:
+                detail = json.loads(e.read().decode())["error"]["message"][:120]
+            except Exception:
+                pass
+            self.ctx.store.log(
+                "SYSTEM",
+                f"Cloud model rejected a generation setting, dropping it: {detail}",
+                is_error=True)
+            gen.pop("thinkingConfig", None)
+            return send(gen)
 
     @staticmethod
     def _shrink(jpeg: bytes, max_w: int = 1024) -> bytes:
@@ -320,8 +346,17 @@ class Assistant:
                     self.last_backend = "cloud"
                     self._finish_turn(thread_id, question, reply)
                     return reply
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Say why. Swallowing this made a broken cloud path look
+                    # exactly like being offline — every answer quietly came
+                    # from the 1B model at 100 s a question.
+                    try:
+                        self.ctx.store.log(
+                            "SYSTEM",
+                            f"Cloud model unreachable ({type(e).__name__}: {e}),"
+                            " answering on-device", is_error=True)
+                    except Exception:
+                        pass
             self.last_backend = "local"
             self._fresh_turn()
             reply = self.llm.chat(composed)

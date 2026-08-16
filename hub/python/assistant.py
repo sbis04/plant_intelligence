@@ -59,7 +59,10 @@ class Assistant:
             temperature=0.3,
             max_tokens=280,
         )
-        self.last_backend = "local"
+        # None until a question has actually been answered. Starting this at
+        # "local" made the dashboard badge read "offline fallback" on every
+        # fresh boot, reporting a cloud failure that had never happened.
+        self.last_backend = None
         self.busy = False   # drives the board's "thinking" LED animation
         # cloud_llm_model is an evergreen alias, so the model underneath
         # changes without notice — and with it, which generation knobs it

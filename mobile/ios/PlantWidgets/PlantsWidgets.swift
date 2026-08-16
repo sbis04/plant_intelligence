@@ -77,10 +77,16 @@ private struct GardenWidgetView: View {
 
   private var small: some View {
     VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Image(systemName: snapshot.statusSymbol)
-          .font(.title2.weight(.semibold))
-          .foregroundStyle(statusColor)
+      HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 3) {
+          Image(systemName: snapshot.statusSymbol)
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(statusColor)
+          Text(snapshot.rainText)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
         Spacer()
         Circle()
           .fill(snapshot.isLive ? accent : Color.red)
@@ -135,22 +141,22 @@ private struct GardenWidgetView: View {
         metric("Soil", snapshot.soilText, "drop.degreesign")
         metric("Box", snapshot.boxTemperatureText, "shippingbox.fill")
       }
-      .frame(width: 112)
+      .frame(width: 120)
     }
   }
 
   private func metric(_ label: String, _ value: String, _ symbol: String) -> some View {
-    HStack(spacing: 7) {
+    HStack(spacing: 8) {
       Image(systemName: symbol)
-        .font(.caption)
+        .font(.body.weight(.medium))
         .foregroundStyle(accent)
-        .frame(width: 16)
+        .frame(width: 20)
       VStack(alignment: .leading, spacing: 0) {
         Text(label.uppercased())
-          .font(.system(size: 8, weight: .semibold))
+          .font(.system(size: 9, weight: .semibold))
           .foregroundStyle(.secondary)
         Text(value)
-          .font(.caption.weight(.semibold))
+          .font(.subheadline.weight(.semibold))
           .lineLimit(1)
       }
       Spacer(minLength: 0)

@@ -186,8 +186,18 @@ final class AppState {
     }
 
     private func cacheForWidgets(_ response: StatusResponse) {
-        SharedGardenStore.save(GardenSnapshot(response: response))
-        guard Date().timeIntervalSince(lastWidgetReload) >= 15 * 60 else { return }
+        let previous = SharedGardenStore.load()
+        let snapshot = GardenSnapshot(response: response)
+        SharedGardenStore.save(snapshot)
+        let presentationChanged = previous == nil
+            || previous?.isLive != snapshot.isLive
+            || previous?.isWatering != snapshot.isWatering
+            || previous?.waterNow != snapshot.waterNow
+            || previous?.planStatus != snapshot.planStatus
+            || previous?.nextWateringAt != snapshot.nextWateringAt
+        guard presentationChanged
+                || Date().timeIntervalSince(lastWidgetReload) >= 15 * 60
+        else { return }
         lastWidgetReload = Date()
         WidgetCenter.shared.reloadAllTimelines()
     }

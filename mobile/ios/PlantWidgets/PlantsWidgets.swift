@@ -96,27 +96,26 @@ private struct GardenWidgetView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .lineLimit(2)
-      if let locationName = snapshot.locationName, snapshot.isLive {
-        Label(locationName, systemImage: "location.fill")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      }
     }
+    .padding(.top, 6)
   }
 
   private var medium: some View {
     HStack(spacing: 16) {
       VStack(alignment: .leading, spacing: 8) {
         HStack(spacing: 8) {
-          ZStack {
-            Circle().fill(statusColor.opacity(0.16))
-            Image(systemName: snapshot.statusSymbol)
-              .foregroundStyle(statusColor)
+          Image(systemName: snapshot.statusSymbol)
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(statusColor)
+            .frame(width: 38, height: 38)
+          VStack(alignment: .leading, spacing: 1) {
+            Text("Plants")
+              .font(.headline)
+            Label(snapshot.rainText, systemImage: "cloud.rain.fill")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
           }
-          .frame(width: 38, height: 38)
-          Text("Plants")
-            .font(.headline)
           Spacer()
         }
         Spacer(minLength: 0)
@@ -134,7 +133,7 @@ private struct GardenWidgetView: View {
       VStack(spacing: 8) {
         metric("Outside", snapshot.outsideTemperatureText, "thermometer.medium")
         metric("Soil", snapshot.soilText, "drop.degreesign")
-        metric("Weather", snapshot.rainText, "cloud.rain")
+        metric("Box", snapshot.boxTemperatureText, "shippingbox.fill")
       }
       .frame(width: 112)
     }

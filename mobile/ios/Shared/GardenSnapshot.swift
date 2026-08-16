@@ -162,7 +162,7 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
     case "due": return "drop.circle.fill"
     case "rain_hold": return "cloud.rain.fill"
     case "already_wet": return "humidity.fill"
-    case "soil_hold": return "drop.triangle.fill"
+    case "soil_hold": return "drop.fill"
     case "missed": return "clock.badge.exclamationmark"
     case "done": return "checkmark.circle.fill"
     default: return waterNow ? "drop.circle.fill" : "leaf.fill"
@@ -182,6 +182,10 @@ struct GardenSnapshot: Codable, Equatable, Sendable {
 
   var soilText: String {
     soilPct.map { "\(Int($0.rounded()))%" } ?? "No probe"
+  }
+
+  var boxTemperatureText: String {
+    boxTemperatureC.map { String(format: "%.0f°", $0) } ?? "–"
   }
 
   var rainText: String {

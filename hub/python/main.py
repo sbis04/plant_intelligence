@@ -14,6 +14,7 @@ The MCU waters on its own conservative timer if this process dies — that
 failsafe is tested by killing this process, not by trusting this comment.
 """
 
+import threading
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -82,14 +83,23 @@ class AppContext:
         if self.hardware.is_watering():
             return False
         self._pending_trigger = ("manual", "requested via API")
-        self.hardware.start_watering(duration_s)
+        if not self.hardware.start_watering(duration_s):
+            self._pending_trigger = None
+            _, err = self.hardware.rpc_health()
+            self.store.log("SYSTEM", f"Watering command not accepted by the MCU ({err})",
+                           is_error=True)
+            return False
         return True
 
     def execute_plan(self):
         plan = self.current_plan
         if plan and plan.water_now and not self.hardware.is_watering():
             self._pending_trigger = ("scheduled", "; ".join(plan.reasons))
-            self.hardware.start_watering(plan.duration_s)
+            if not self.hardware.start_watering(plan.duration_s):
+                # The MCU didn't take it. Leave the plan due so the next tick
+                # tries again rather than silently losing the watering.
+                self._pending_trigger = None
+                return
             # Re-plan immediately so we don't double-trigger on the next tick.
             self.recompute_plan()
 
@@ -189,32 +199,44 @@ def main():
     ts = TimeSeriesStore()
     ts.start()
 
-    try:
+    # Everything optional starts off the critical path, on purpose.
+    #
+    # Building the LLM brick reaches out to the model runner, which sometimes
+    # takes seconds and sometimes minutes — and while it blocked here, the
+    # dashboard, the API and the watering scheduler were all unavailable.
+    # Watering must never wait on a chatbot, a camera or a push key. Each of
+    # these can fail or hang without the hub noticing; every consumer already
+    # treats them as optional (None until ready, forever if they never come).
+    def start_assistant():
         from assistant import Assistant
         ctx.assistant = Assistant(ctx)
         ctx.store.log("SYSTEM", "On-board assistant ready (local LLM)")
-    except Exception as e:
-        ctx.store.log("SYSTEM", f"Assistant unavailable: {e}", is_error=True)
 
-    try:
+    def start_camera():
         from camera import CameraService
         ctx.camera = CameraService(ctx.config)
-    except Exception as e:
-        ctx.store.log("SYSTEM", f"Camera service unavailable: {e}", is_error=True)
 
-    try:
+    def start_push():
         from push import PushService
         ctx.push = PushService(ctx.config, ctx.store, log=ctx.store.log)
-    except Exception as e:
-        ctx.store.log("SYSTEM", f"Push service unavailable: {e}", is_error=True)
 
-    try:
+    def start_relay():
         from relay import CameraRelay
         ctx.relay = CameraRelay(ctx.config, log=ctx.store.log)
         ctx.relay.start_async()
-    except Exception as e:
-        ctx.relay = None
-        ctx.store.log("SYSTEM", f"Camera relay unavailable: {e}", is_error=True)
+
+    def start_service(name: str, fn):
+        def run():
+            try:
+                fn()
+            except Exception as e:
+                ctx.store.log("SYSTEM", f"{name} unavailable: {e}", is_error=True)
+        threading.Thread(target=run, name=f"init-{name}", daemon=True).start()
+
+    start_service("Assistant", start_assistant)
+    start_service("Camera service", start_camera)
+    start_service("Push service", start_push)
+    start_service("Camera relay", start_relay)
 
     api.register(ui, ctx)
 
@@ -222,7 +244,9 @@ def main():
     stale = ctx.store.close_stale_open_rows()
     if stale:
         ctx.store.log("SYSTEM", f"Closed {stale} watering record(s) left open by a restart")
-    ctx.hardware.set_failsafe_hours(ctx.config.failsafe_silence_h)
+    # The MCU may still be booting; if it doesn't take the setting now, the
+    # loop retries and it keeps its own compiled-in default meanwhile.
+    failsafe_set = ctx.hardware.set_failsafe_hours(ctx.config.failsafe_silence_h)
     located = ctx.try_autolocate()
     ctx.recompute_plan()
 
@@ -242,9 +266,7 @@ def main():
             mode = 0
         if mode != led_state["mode"]:
             led_state["mode"] = mode
-            try:
-                ctx.hardware.set_led_mode(mode)
-            except Exception:
+            if not ctx.hardware.set_led_mode(mode):
                 led_state["mode"] = -1   # retry next tick
         seen = ctx.hardware.snapshot().get("mcu_seen_seconds_ago")
         healthy = seen is not None and seen < 180
@@ -257,12 +279,33 @@ def main():
                 pass
 
     def loop():
-        nonlocal located
+        # Belt and braces: nothing in a single tick may kill the scheduler.
+        # A hub that exits stops deciding, stops serving the app, and leaves
+        # the garden to the MCU's 14-hour failsafe — far worse than skipping
+        # one second of work.
+        try:
+            tick()
+        except Exception as e:
+            ctx.store.log("SYSTEM", f"Scheduler tick failed: {e!r}", is_error=True)
+        time.sleep(1)
+
+    def tick():
+        nonlocal located, failsafe_set
         now = time.time()
 
         if now - last["ping"] >= 30:
             last["ping"] = now
-            ctx.hardware.ping()
+            if not failsafe_set:
+                failsafe_set = ctx.hardware.set_failsafe_hours(
+                    ctx.config.failsafe_silence_h)
+            if not ctx.hardware.ping():
+                fails, err = ctx.hardware.rpc_health()
+                # One missed beat is a hiccup; a run of them is worth saying
+                # out loud, once, rather than every 30 s forever.
+                if fails in (3, 30):
+                    ctx.store.log("SYSTEM",
+                                  f"MCU not answering ({fails} heartbeats missed) — {err}",
+                                  is_error=True)
 
         if now - last["leds"] >= 2:
             last["leds"] = now
@@ -306,8 +349,6 @@ def main():
                 pct = ctx.config.soil_raw_to_pct(snap["soil_raw"])
                 if pct is not None:
                     ts.write_sample("soil_pct", pct)
-
-        time.sleep(1)
 
     App.run(user_loop=loop)
 

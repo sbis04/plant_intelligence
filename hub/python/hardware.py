@@ -41,6 +41,8 @@ class Hardware:
         self._seconds_left: int = 0
         self._fan_on: bool = False
         self._last_seen: float = 0.0
+        self._rpc_failures: int = 0
+        self._last_rpc_error: str = ""
         self._event_listeners: list[Callable[[str, bool], None]] = []
 
         Bridge.provide("on_temperature", self._on_temperature)
@@ -92,22 +94,48 @@ class Hardware:
                 pass
 
     # ---- Python → MCU ---------------------------------------------------------
-    def start_watering(self, duration_s: int):
-        Bridge.call("start_watering", int(duration_s) * 1000)
+    def _call(self, method: str, *args) -> bool:
+        """Every MCU command goes through here, and none of them may raise.
 
-    def stop_watering(self):
-        Bridge.call("stop_watering")
+        Bridge.call times out if the MCU is mid-reset or its serial link
+        hiccups. That used to propagate out of the scheduler loop and take
+        the whole hub down — which is backwards: the Linux side exists to
+        keep deciding, and the MCU has its own failsafe for real silence.
+        A failed command is reported, never fatal.
+        """
+        try:
+            Bridge.call(method, *args)
+            with self._lock:
+                self._rpc_failures = 0
+                self._last_rpc_error = ""
+            return True
+        except Exception as e:
+            with self._lock:
+                self._rpc_failures += 1
+                self._last_rpc_error = f"{method}: {e}"
+            return False
 
-    def ping(self):
+    def start_watering(self, duration_s: int) -> bool:
+        return self._call("start_watering", int(duration_s) * 1000)
+
+    def stop_watering(self) -> bool:
+        return self._call("stop_watering")
+
+    def ping(self) -> bool:
         """Heartbeat feeding the MCU's dead-man failsafe."""
-        Bridge.call("ping")
+        return self._call("ping")
 
-    def set_failsafe_hours(self, hours: int):
-        Bridge.call("set_failsafe", int(hours))
+    def set_failsafe_hours(self, hours: int) -> bool:
+        return self._call("set_failsafe", int(hours))
 
-    def set_led_mode(self, mode: int):
+    def set_led_mode(self, mode: int) -> bool:
         """Ambient LED matrix mode: 0 idle, 1 rain hold, 2 thinking."""
-        Bridge.call("set_led_mode", int(mode))
+        return self._call("set_led_mode", int(mode))
+
+    def rpc_health(self) -> tuple:
+        """(consecutive failures, last error) — for logging and the API."""
+        with self._lock:
+            return self._rpc_failures, self._last_rpc_error
 
     # ---- accessors --------------------------------------------------------------
     def on_event(self, listener: Callable[[str, str, bool], None]):
@@ -126,6 +154,7 @@ class Hardware:
                 "watering_seconds_left": self._seconds_left,
                 "mcu_seen_seconds_ago": round(time.time() - self._last_seen, 1)
                 if self._last_seen else None,
+                "mcu_rpc_failures": self._rpc_failures,
             }
 
     def is_watering(self) -> bool:

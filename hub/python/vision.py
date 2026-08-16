@@ -303,7 +303,8 @@ class VisionService:
         if obs.is_wet and obs.wetness_source == "rain":
             return "Camera: the roof is wet from rain"
         if obs.is_wet and obs.wetness_source == "watering":
-            return "Camera: the roof was watered — wet around the pots, dry further out"
+            return ("Camera: the roof was watered, wet around the pots but "
+                    "dry further out")
         if obs.stressed:
             return "Camera: the plants look like they need water"
         if obs.is_dry:

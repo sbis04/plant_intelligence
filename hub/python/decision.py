@@ -80,7 +80,7 @@ def _apply_vision(cfg: Config, obs, rain_expected: bool, wet_hours: float,
     if obs.is_wet and cfg.vision_may_skip:
         if wet_hours > cfg.vision_max_wet_hours:
             reasons.append(
-                f"the camera has read the roof wet for {wet_hours:.0f} h straight — "
+                f"the camera has read the roof wet for {wet_hours:.0f} h straight: "
                 "that looks stuck, so watering anyway")
             return False, True, None
         if obs.wetness_source == "watering":
@@ -98,7 +98,7 @@ def _apply_vision(cfg: Config, obs, rain_expected: bool, wet_hours: float,
     if rain_expected and not obs.raining_now:
         if obs.is_dry:
             reasons.append("the forecast expects rain, but the camera shows a "
-                           "dry roof — going by what the camera can see")
+                           "dry roof: going by what the camera can see")
             rain_expected = False
         elif obs.light == "direct_sun":
             # Crisp shadows and "it is raining right now" cannot both be true.

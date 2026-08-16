@@ -43,10 +43,20 @@ function render(data) {
   $("location").textContent = loc.name || "set location";
 
   // tiles
-  const soilConnected = s.soil_pct != null;
-  $("soil").textContent = soilConnected ? fmtPct(s.soil_pct) : "Not connected";
-  $("soil-raw").textContent = soilConnected && s.soil_raw >= 0
-    ? `raw ${s.soil_raw}` : BLANK_DETAIL;
+  // A probe that is wired but not yet calibrated reads null too, and
+  // calling that "Not connected" sends you hunting for a wiring fault that
+  // isn't there. The raw value tells the two apart.
+  const soilWired = s.soil_raw != null && s.soil_raw >= 0;
+  if (s.soil_pct != null) {
+    $("soil").textContent = fmtPct(s.soil_pct);
+    $("soil-raw").textContent = soilWired ? `raw ${s.soil_raw}` : BLANK_DETAIL;
+  } else if (soilWired) {
+    $("soil").textContent = "Not calibrated";
+    $("soil-raw").textContent = `reading raw ${s.soil_raw}`;
+  } else {
+    $("soil").textContent = "Not connected";
+    $("soil-raw").textContent = BLANK_DETAIL;
+  }
 
   $("outside").textContent = fmtC(w.temp_now_c);
   $("outside-detail").textContent =

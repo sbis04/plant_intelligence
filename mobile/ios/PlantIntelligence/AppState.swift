@@ -306,14 +306,21 @@ final class AppState {
         messages = []
     }
 
-    func deleteCurrentThread() async {
-        guard !assistantBusy, currentThreadId != 0, let client else { return }
-        _ = try? await client.deleteThread(id: currentThreadId)
+    func deleteThread(_ id: Int) async {
+        guard !assistantBusy, id != 0, let client else { return }
+        let deletedCurrentThread = id == currentThreadId
+        _ = try? await client.deleteThread(id: id)
         await loadThreads()
-        if let latest = threads.first {
-            await openThread(latest.id)
-        } else {
-            newThread()
+        if deletedCurrentThread {
+            if let latest = threads.first {
+                await openThread(latest.id)
+            } else {
+                newThread()
+            }
         }
+    }
+
+    func deleteCurrentThread() async {
+        await deleteThread(currentThreadId)
     }
 }

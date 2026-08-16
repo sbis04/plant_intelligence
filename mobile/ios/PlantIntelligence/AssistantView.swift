@@ -6,6 +6,7 @@ import SwiftUI
 /// it's open — see GardenView.
 struct AssistantOverlay: View {
     @Environment(AppState.self) private var app
+    @State private var historyOpen = false
 
     private let suggestions = [
         "Why aren't you watering?",
@@ -51,7 +52,23 @@ struct AssistantOverlay: View {
                 }
             }
 
+            if historyOpen {
+                Color.black.opacity(0.16)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.snappy) { historyOpen = false }
+                    }
+
+                historyPanel
+                    .padding(.horizontal, 16)
+                    .padding(.top, 64)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(1)
+            }
+
             controls
+                .zIndex(2)
         }
         .task { await app.resumeThreads() }   // auto-open the last conversation
     }
@@ -61,26 +78,9 @@ struct AssistantOverlay: View {
     private var controls: some View {
         HStack {
             // Conversation history: switch, resume, or delete threads.
-            Menu {
-                ForEach(app.threads) { thread in
-                    Button {
-                        Haptics.selection()
-                        Task { await app.openThread(thread.id) }
-                    } label: {
-                        if thread.id == app.currentThreadId {
-                            Label(thread.displayTitle, systemImage: "checkmark")
-                        } else {
-                            Text(thread.displayTitle)
-                        }
-                    }
-                }
-                if app.currentThreadId != 0 {
-                    Divider()
-                    Button("Delete conversation", role: .destructive) {
-                        Haptics.notification(.warning)
-                        Task { await app.deleteCurrentThread() }
-                    }
-                }
+            Button {
+                Haptics.impact(.soft)
+                withAnimation(.snappy) { historyOpen.toggle() }
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.body.weight(.semibold))
@@ -102,6 +102,118 @@ struct AssistantOverlay: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
+    }
+
+    private var historyPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Conversations")
+                    .font(.headline)
+                Text("\(app.threads.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.textMuted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Theme.line, in: .capsule)
+                Spacer()
+                Button {
+                    Haptics.impact(.soft)
+                    withAnimation(.snappy) { historyOpen = false }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.textMuted)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+
+            Divider()
+                .overlay(Theme.line)
+
+            ScrollView {
+                LazyVStack(spacing: 5) {
+                    ForEach(app.threads) { thread in
+                        Button {
+                            Haptics.selection()
+                            withAnimation(.snappy) { historyOpen = false }
+                            Task { await app.openThread(thread.id) }
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: thread.id == app.currentThreadId
+                                      ? "checkmark.circle.fill" : "message")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(thread.id == app.currentThreadId
+                                                     ? Theme.accent : Theme.textMuted)
+                                    .frame(width: 22, height: 22)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(thread.displayTitle)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if let snippet = thread.snippet, !snippet.isEmpty {
+                                        Text(snippet)
+                                            .font(.subheadline)
+                                            .foregroundStyle(Theme.textMuted)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.leading)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 11)
+                            .background(
+                                thread.id == app.currentThreadId
+                                    ? Theme.accent.opacity(0.12) : .clear,
+                                in: .rect(cornerRadius: 13)
+                            )
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                Haptics.notification(.warning)
+                                Task { await app.deleteThread(thread.id) }
+                            } label: {
+                                Label("Delete conversation", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+            }
+            .frame(maxHeight: 430)
+
+            if app.currentThreadId != 0 {
+                Divider()
+                    .overlay(Theme.line)
+                Button(role: .destructive) {
+                    Haptics.notification(.warning)
+                    withAnimation(.snappy) { historyOpen = false }
+                    Task { await app.deleteCurrentThread() }
+                } label: {
+                    Label("Delete current conversation", systemImage: "trash")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 13)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.panel.opacity(0.92), in: .rect(cornerRadius: 24))
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .strokeBorder(Theme.line, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
     }
 
     private var emptyState: some View {

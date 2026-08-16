@@ -97,22 +97,43 @@ private struct CameraViewer: View {
     @State private var videoReady = false
     @State private var videoFailed = false
     @State private var streamNote = "starting"
+    @State private var zoomScale: CGFloat = 1
+    @State private var zoomOffset: CGSize = .zero
+    @GestureState private var pinchScale: CGFloat = 1
+    @GestureState private var dragOffset: CGSize = .zero
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            Image(uiImage: live ?? image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
-            if let liveURL, !videoFailed {
-                LiveVideoView(url: liveURL,
-                              onReady: { videoReady = true },
-                              onFail: { videoFailed = true })
-                    .opacity(videoReady ? 1 : 0)   // snapshot until frames flow
-                    .ignoresSafeArea()
+            GeometryReader { geometry in
+                let scale = displayedScale
+                let offset = constrainedOffset(
+                    CGSize(width: zoomOffset.width + dragOffset.width,
+                           height: zoomOffset.height + dragOffset.height),
+                    scale: scale,
+                    in: geometry.size)
+
+                ZStack {
+                    Image(uiImage: live ?? image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if let liveURL, !videoFailed {
+                        LiveVideoView(url: liveURL,
+                                      onReady: { videoReady = true },
+                                      onFail: { videoFailed = true })
+                            .opacity(videoReady ? 1 : 0)   // snapshot until frames flow
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .scaleEffect(scale)
+                .offset(offset)
+                .contentShape(.rect)
+                .gesture(zoomGesture(in: geometry.size))
+                .onTapGesture(count: 2) { resetZoom() }
             }
+            .ignoresSafeArea()
+            .clipped()
             if UserDefaults.standard.bool(forKey: "streamDebug") {   // dev/testing hook
                 Text(streamNote)
                     .font(.caption2.monospaced())
@@ -212,6 +233,61 @@ private struct CameraViewer: View {
             .compactMap({ $0 as? UIWindowScene }).first else { return }
         refreshSupportedOrientations()
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
+    }
+
+    private var displayedScale: CGFloat {
+        min(max(zoomScale * pinchScale, 1), 5)
+    }
+
+    private func zoomGesture(in size: CGSize) -> some Gesture {
+        MagnifyGesture()
+            .updating($pinchScale) { value, state, _ in
+                state = value.magnification
+            }
+            .onEnded { value in
+                let newScale = min(max(zoomScale * value.magnification, 1), 5)
+                zoomScale = newScale
+                zoomOffset = newScale > 1
+                    ? constrainedOffset(zoomOffset, scale: newScale, in: size)
+                    : .zero
+            }
+            .simultaneously(with:
+                DragGesture(minimumDistance: 1)
+                    .updating($dragOffset) { value, state, _ in
+                        guard displayedScale > 1 else { return }
+                        state = value.translation
+                    }
+                    .onEnded { value in
+                        guard zoomScale > 1 else {
+                            zoomOffset = .zero
+                            return
+                        }
+                        let proposed = CGSize(
+                            width: zoomOffset.width + value.translation.width,
+                            height: zoomOffset.height + value.translation.height)
+                        zoomOffset = constrainedOffset(
+                            proposed, scale: zoomScale, in: size)
+                    }
+            )
+    }
+
+    private func constrainedOffset(_ proposed: CGSize, scale: CGFloat,
+                                   in size: CGSize) -> CGSize {
+        guard scale > 1 else { return .zero }
+        let maxX = size.width * (scale - 1) / 2
+        let maxY = size.height * (scale - 1) / 2
+        return CGSize(
+            width: min(max(proposed.width, -maxX), maxX),
+            height: min(max(proposed.height, -maxY), maxY))
+    }
+
+    private func resetZoom() {
+        guard zoomScale > 1 else { return }
+        Haptics.impact(.soft)
+        withAnimation(.snappy) {
+            zoomScale = 1
+            zoomOffset = .zero
+        }
     }
 }
 

@@ -33,6 +33,19 @@ def _location(ctx) -> dict:
     }
 
 
+def _vision(ctx) -> Optional[dict]:
+    """What the camera last made of the garden, if anything."""
+    svc = getattr(ctx, "vision", None)
+    if svc is None or not svc.configured:
+        return None
+    obs = svc.latest
+    if obs is None:
+        return {"available": True, "observation": None}
+    d = obs.to_dict()
+    d["headline"] = svc.headline(obs)
+    return {"available": True, "observation": d}
+
+
 def register(ui, ctx):
     """Wire endpoints onto the WebUI brick. `ctx` is the AppContext from main."""
 
@@ -52,7 +65,25 @@ def register(ui, ctx):
                 "configured": bool(ctx.push and ctx.push.configured),
                 "devices": ctx.store.push_token_counts().get("alert", 0),
             },
+            "vision": _vision(ctx),
         }
+
+    def vision_observe():
+        """Look at the garden right now. Used by the app's refresh and when
+        you want to check the camera's opinion before watering by hand."""
+        if not ctx.vision or not ctx.vision.configured:
+            return {"observation": None, "error": "camera vision not available"}
+        if ctx.vision.busy:
+            return {"observation": None, "error": "already looking"}
+        obs = ctx.look_at_garden("requested")
+        if obs is None:
+            return {"observation": None, "error": "could not read the camera view"}
+        d = obs.to_dict()
+        d["headline"] = ctx.vision.headline(obs)
+        return {"observation": d, "error": None}
+
+    def vision_history(limit: int = 20):
+        return {"observations": ctx.store.recent_observations(limit)}
 
     def history():
         return {"history": ctx.store.recent_history(30)}
@@ -114,6 +145,8 @@ def register(ui, ctx):
         return {"system": system_stats.snapshot()}
 
     ui.expose_api("GET", "/api/config", get_config)
+    ui.expose_api("POST", "/api/vision/observe", vision_observe)
+    ui.expose_api("GET", "/api/vision/history", vision_history)
     def camera_snapshot():
         from fastapi.responses import Response
         if not ctx.camera or not ctx.camera.configured:

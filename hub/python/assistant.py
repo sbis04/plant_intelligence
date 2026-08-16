@@ -117,6 +117,9 @@ class Assistant:
             "recent_waterings": waterings,
             "recent_logs": logs,
             "soil_probe_installed": ctx.config.soil_enabled,
+            "camera_observation": (
+                ctx.vision.latest.to_dict()
+                if getattr(ctx, "vision", None) and ctx.vision.latest else None),
             "schedule_mode": (
                 "adaptive (soil + weather decide the cadence)"
                 if ctx.config.soil_enabled or not ctx.config.fixed_when_no_soil

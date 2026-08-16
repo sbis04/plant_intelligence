@@ -47,6 +47,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS vision_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    observed_at TEXT NOT NULL,
+    ground TEXT NOT NULL,
+    raining_now INTEGER NOT NULL DEFAULT 0,
+    light TEXT NOT NULL DEFAULT '',
+    plants TEXT NOT NULL DEFAULT '',
+    wetness_source TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS push_tokens (
     token TEXT PRIMARY KEY,
     kind TEXT NOT NULL,               -- alert | activity-start | activity-update
@@ -92,6 +103,34 @@ class Store:
         return [
             {"timestamp": r[0], "event_type": r[1], "message": r[2],
              "is_error": bool(r[3])}
+            for r in rows
+        ]
+
+    # ---- camera observations ------------------------------------------------
+    def vision_save(self, obs: dict):
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO vision_observations (observed_at, ground, raining_now,"
+                " light, plants, wetness_source, confidence, note)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (obs.get("at"), obs.get("ground", ""),
+                 1 if obs.get("raining_now") else 0, obs.get("light", ""),
+                 obs.get("plants", ""), obs.get("wetness_source", ""),
+                 float(obs.get("confidence", 0.0)), obs.get("note", "")),
+            )
+            self._db.commit()
+
+    def recent_observations(self, limit: int = 20) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT observed_at, ground, raining_now, light, plants,"
+                " wetness_source, confidence, note FROM vision_observations"
+                " ORDER BY id DESC LIMIT ?", (limit,),
+            ).fetchall()
+        return [
+            {"at": r[0], "ground": r[1], "raining_now": bool(r[2]), "light": r[3],
+             "plants": r[4], "wetness_source": r[5], "confidence": r[6],
+             "note": r[7]}
             for r in rows
         ]
 

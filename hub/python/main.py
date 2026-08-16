@@ -46,6 +46,7 @@ class AppContext:
         self.current_weather = None
         self.assistant = None   # attached in main() after bricks are up
         self.camera = None
+        self.vision = None      # Gemini reading the actual roof (vision.py)
         self.relay = None       # go2rtc live-stream relay
         self.push = None        # APNs sender, attached in main()
         self._open_watering_row = None
@@ -187,10 +188,22 @@ class AppContext:
         snap = self.hardware.snapshot()
         soil_pct = self.config.soil_raw_to_pct(snap.get("soil_raw", -1))
         self.current_weather = self.weather_svc.get()
+        obs = self.vision.fresh(now) if self.vision else None
         self.current_plan = compute_plan(
             self.config, now, soil_pct, self.current_weather,
             self.store.last_watering_end(),
+            vision=obs,
+            vision_wet_hours=self.vision.wet_hours(now) if self.vision else 0.0,
         )
+
+    def look_at_garden(self, why: str = "scheduled"):
+        """Take a fresh look and re-plan on what it saw."""
+        if not self.vision:
+            return None
+        obs = self.vision.observe(datetime.now(self.tz), why)
+        if obs is not None:
+            self.recompute_plan()
+        return obs
 
 
 def main():
@@ -215,6 +228,9 @@ def main():
     def start_camera():
         from camera import CameraService
         ctx.camera = CameraService(ctx.config)
+        # Vision needs the camera, so it is built here rather than racing it.
+        from vision import VisionService
+        ctx.vision = VisionService(ctx, log=ctx.store.log)
 
     def start_push():
         from push import PushService
@@ -251,7 +267,7 @@ def main():
     ctx.recompute_plan()
 
     last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0,
-            "locate": time.time(), "leds": 0.0}
+            "locate": time.time(), "leds": 0.0, "vision": 0.0}
     led_state = {"mode": -1, "healthy": None}
 
     def service_leds():
@@ -310,6 +326,15 @@ def main():
         if now - last["leds"] >= 2:
             last["leds"] = now
             service_leds()
+
+        # A look at the garden takes several seconds against a cloud model,
+        # so it runs off the tick — a watering must never wait behind it.
+        if now - last["vision"] >= 60:
+            last["vision"] = now
+            if (ctx.vision and not ctx.vision.busy
+                    and ctx.vision.due(datetime.now(ctx.tz))):
+                threading.Thread(target=ctx.look_at_garden, args=("scheduled",),
+                                 name="vision-look", daemon=True).start()
 
         # Retry auto-location hourly until it succeeds (e.g. boot before Wi-Fi).
         if not located and now - last["locate"] >= 3600:

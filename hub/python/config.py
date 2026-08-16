@@ -54,6 +54,25 @@ class Config:
     very_hot_day_c: float = 40.0
     cool_day_c: float = 25.0             # stretches interval, shortens watering
 
+    # --- camera vision (Gemini reads the actual roof) ---------------------------
+    # The forecast is city-level and regularly wrong about one rooftop. The
+    # camera is already pointed at the garden, so it gets a vote — see
+    # vision.py for what it can read and decision.py for how far it may move
+    # a watering. Needs cloud_llm_api_key and a configured camera.
+    vision_enabled: bool = True
+    vision_interval_min: int = 30        # ambient look, daylight only
+    vision_hour_start: int = 6           # local hour; the IR night view can't
+    vision_hour_end: int = 20            # judge wetness, so don't pretend
+    vision_max_age_min: int = 90         # older than this decides nothing
+    vision_min_confidence: float = 0.55
+    vision_image_width: int = 1280
+    # How far the camera may override the calendar. Skipping is time-capped
+    # because a stuck "wet" reading is the one failure that costs plants:
+    # after this long continuously reading wet, water anyway and stop
+    # trusting it. Roughly three slots' worth.
+    vision_may_skip: bool = True
+    vision_max_wet_hours: float = 30.0
+
     # --- fixed schedule (used while there is no soil probe) ---------------------
     # Without a moisture reading the adaptive cadence is extrapolating from
     # weather alone, which is a guess dressed up as a decision. Until the

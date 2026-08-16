@@ -55,6 +55,64 @@ def _parse_hhmm(s: str) -> dtime:
     return dtime(int(h), int(m))
 
 
+def _apply_vision(cfg: Config, obs, rain_expected: bool, wet_hours: float,
+                  reasons: list) -> tuple:
+    """Let the camera correct the forecast.
+
+    Returns (rain_expected, force, skip_note) — the note being how to phrase
+    a skip, since "rain is doing the watering" is a lie when what the camera
+    actually saw was someone with a hose.
+
+    The camera outranks the forecast on principle: the forecast describes a
+    city, the camera is pointed at the actual roof we are deciding about.
+
+    The two directions are deliberately NOT symmetric, because the mistakes
+    are not symmetric. Being wrongly told "it's dry" costs a few litres of
+    water. Being wrongly told "it's already wet" costs a watering, and in a
+    40 °C week that costs plants. So a dry reading may cancel a forecast
+    skip freely, while a wet reading may only cause a skip for so long
+    before we water regardless and stop believing it.
+    """
+    if obs.raining_now:
+        reasons.append("the camera can see rain falling on the roof")
+        return True, False, "rain is doing the watering"
+
+    if obs.is_wet and cfg.vision_may_skip:
+        if wet_hours > cfg.vision_max_wet_hours:
+            reasons.append(
+                f"the camera has read the roof wet for {wet_hours:.0f} h straight — "
+                "that looks stuck, so watering anyway")
+            return False, True, None
+        if obs.wetness_source == "watering":
+            reasons.append("the camera shows the roof was already watered: "
+                           "wet around the pots, dry further out")
+            return True, False, "the garden has already been watered"
+        if obs.wetness_source == "rain":
+            reasons.append("the camera shows the roof is wet from rain")
+            return True, False, "rain is doing the watering"
+        reasons.append(f"the camera shows the roof is {obs.ground}")
+        return True, False, "the roof is already wet"
+
+    # The roof isn't wet enough to skip on. Now see whether the forecast's
+    # rain claim survives contact with the actual roof.
+    if rain_expected and not obs.raining_now:
+        if obs.is_dry:
+            reasons.append("the forecast expects rain, but the camera shows a "
+                           "dry roof — going by what the camera can see")
+            rain_expected = False
+        elif obs.light == "direct_sun":
+            # Crisp shadows and "it is raining right now" cannot both be true.
+            reasons.append("the forecast says rain, but the camera shows direct "
+                           "sunlight on the roof")
+            rain_expected = False
+
+    if obs.stressed and not obs.is_wet:
+        reasons.append("the camera shows the plants drooping: watering regardless")
+        return False, True, None
+
+    return rain_expected, False, None
+
+
 def _slot_label(t: datetime) -> str:
     return t.strftime("%I:%M %p").lstrip("0")
 
@@ -79,6 +137,8 @@ def _plan_fixed(
     rain_expected: bool,
     last_watering_end: Optional[datetime],
     reasons: list,
+    force: bool = False,
+    skip_note: str = "rain is doing the watering",
 ) -> Plan:
     """Fixed daily slots — used until the soil probe is calibrated.
 
@@ -112,9 +172,8 @@ def _plan_fixed(
         elif late_min > cfg.fixed_catchup_min:
             reasons.append(f"the {_slot_label(slot)} slot was missed by "
                            f"{late_min} min: waiting for the next one")
-        elif rain_expected:
-            reasons.append(f"skipping the {_slot_label(slot)} slot: rain is "
-                           "doing the watering")
+        elif rain_expected and not force:
+            reasons.append(f"skipping the {_slot_label(slot)} slot: {skip_note}")
         else:
             reasons.append(f"the {_slot_label(slot)} watering is due")
             return plan(True, None)
@@ -140,6 +199,8 @@ def compute_plan(
     soil_pct: Optional[float],
     weather: Optional[WeatherSummary],
     last_watering_end: Optional[datetime],
+    vision=None,                        # vision.Observation, if recent enough
+    vision_wet_hours: float = 0.0,
 ) -> Plan:
     reasons: list = []
     interval_h = cfg.base_interval_h
@@ -184,6 +245,14 @@ def compute_plan(
         reasons.append("no weather data: watering on schedule" if fixed
                        else "no weather data: using neutral cadence")
 
+    # ---- the camera gets the last word on the weather -------------------------
+    force = False
+    skip_note = "rain is doing the watering"
+    if vision is not None:
+        rain_expected, force, note = _apply_vision(
+            cfg, vision, rain_expected, vision_wet_hours, reasons)
+        skip_note = note or skip_note
+
     # ---- soil overrides the calendar when available ---------------------------
     urgent = False
     if soil_pct is not None:
@@ -213,7 +282,10 @@ def compute_plan(
 
     if fixed:
         return _plan_fixed(cfg, now, duration_s, rain_expected,
-                           last_watering_end, reasons)
+                           last_watering_end, reasons, force, skip_note)
+
+    # Visibly drooping plants are as good a reason as a dry probe reading.
+    urgent = urgent or force
 
     # ---- when is the next watering due? ---------------------------------------
     if last_watering_end is None:

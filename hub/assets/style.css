@@ -81,6 +81,7 @@ h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
 .big { font-size: 1.15rem; font-weight: 600; margin-bottom: 8px; }
+#plan-headline { margin: 0 0 6px 0; font-weight: 600; }
 #reasons { margin: 0 0 10px 0; padding-left: 1.1em; color: var(--muted); font-size: 0.9rem; }
 
 .kv { display: flex; flex-direction: column; gap: 0; }

@@ -76,9 +76,14 @@ function render(data) {
             weekday: "short", hour: "2-digit", minute: "2-digit",
           })
         : "–";
+    // The decision leads; the supporting facts are the smaller print under
+    // it. Older hubs send neither, so fall back to the plain list.
+    const reasons = plan.reasons || [];
+    $("plan-headline").textContent = plan.headline || "";
+    const supporting = plan.headline ? reasons.slice(1) : reasons;
     const ul = $("reasons");
     ul.innerHTML = "";
-    (plan.reasons || []).forEach((r) => {
+    supporting.forEach((r) => {
       const li = document.createElement("li");
       li.textContent = r;
       ul.appendChild(li);

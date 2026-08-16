@@ -167,14 +167,15 @@ class VisionService:
         return obs
 
     # ---- scheduling ---------------------------------------------------------
+    def daylight(self, now: datetime) -> bool:
+        """The night view is infrared and monochrome, which is precisely the
+        information wetness lives in. Don't pretend to read it."""
+        return (self.ctx.config.vision_hour_start
+                <= now.hour < self.ctx.config.vision_hour_end)
+
     def due(self, now: datetime) -> bool:
-        """Regular ambient look. Daylight only — the night view is infrared
-        and monochrome, which is precisely the information wetness lives in.
-        """
-        if not self.configured:
-            return False
-        if not (self.ctx.config.vision_hour_start
-                <= now.hour < self.ctx.config.vision_hour_end):
+        """Regular ambient look, on the configured interval."""
+        if not self.configured or not self.daylight(now):
             return False
         if self._last_attempt is None:
             return True

@@ -51,6 +51,7 @@ class AppContext:
         self.push = None        # APNs sender, attached in main()
         self._open_watering_row = None
         self._pending_trigger = None   # trigger/reason for the next start event
+        self._preslot_checked_for = None   # slot whose pre-watering look is done
 
         self.hardware.on_event(self._on_mcu_event)
 
@@ -196,6 +197,31 @@ class AppContext:
             vision_wet_hours=self.vision.wet_hours(now) if self.vision else 0.0,
         )
 
+    def preslot_check_due(self, now: datetime) -> bool:
+        """One extra look shortly before a watering is due.
+
+        The ambient look runs every half hour, so without this a slot could
+        be decided on a reading old enough for the sky to have changed. This
+        makes the last word on a watering a genuinely current one.
+
+        Marks the slot as checked as a side effect, so the window produces
+        exactly one look however often the tick asks.
+        """
+        if not self.vision or not self.vision.configured:
+            return False
+        if not self.vision.daylight(now):
+            return False
+        plan = self.current_plan
+        if plan is None or plan.water_now or plan.next_water_at is None:
+            return False
+        lead_min = (plan.next_water_at - now).total_seconds() / 60.0
+        if not 0 <= lead_min <= self.config.vision_preslot_min:
+            return False
+        if self._preslot_checked_for == plan.next_water_at:
+            return False
+        self._preslot_checked_for = plan.next_water_at
+        return True
+
     def look_at_garden(self, why: str = "scheduled"):
         """Take a fresh look and re-plan on what it saw."""
         if not self.vision:
@@ -267,7 +293,7 @@ def main():
     ctx.recompute_plan()
 
     last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0,
-            "locate": time.time(), "leds": 0.0, "vision": 0.0}
+            "locate": time.time(), "leds": 0.0, "vision": 0.0, "due": 0.0}
     led_state = {"mode": -1, "healthy": None}
 
     def service_leds():
@@ -329,12 +355,16 @@ def main():
 
         # A look at the garden takes several seconds against a cloud model,
         # so it runs off the tick — a watering must never wait behind it.
-        if now - last["vision"] >= 60:
+        # Checked every 20 s so the narrow pre-watering window isn't missed.
+        if now - last["vision"] >= 20:
             last["vision"] = now
-            if (ctx.vision and not ctx.vision.busy
-                    and ctx.vision.due(datetime.now(ctx.tz))):
-                threading.Thread(target=ctx.look_at_garden, args=("scheduled",),
-                                 name="vision-look", daemon=True).start()
+            if ctx.vision and not ctx.vision.busy:
+                local = datetime.now(ctx.tz)
+                why = ("before watering" if ctx.preslot_check_due(local)
+                       else "scheduled" if ctx.vision.due(local) else None)
+                if why:
+                    threading.Thread(target=ctx.look_at_garden, args=(why,),
+                                     name="vision-look", daemon=True).start()
 
         # Retry auto-location hourly until it succeeds (e.g. boot before Wi-Fi).
         if not located and now - last["locate"] >= 3600:
@@ -349,6 +379,18 @@ def main():
             # 2 min when the MCU verifiably reports idle.
             ctx.store.close_stale_open_rows(
                 max_age_min=15 if ctx.hardware.is_watering() else 2)
+            ctx.recompute_plan()
+
+        # The instant a planned watering comes due, re-plan rather than
+        # waiting out the rest of the 5-minute cycle. Without this a 17:00
+        # slot could start at 17:04, and the pre-watering camera check would
+        # have been for nothing.
+        plan = ctx.current_plan
+        if (now - last["due"] >= 10 and plan and not plan.water_now
+                and plan.next_water_at
+                and datetime.now(ctx.tz) >= plan.next_water_at):
+            last["due"] = now
+            last["plan"] = now
             ctx.recompute_plan()
 
         ctx.execute_plan()

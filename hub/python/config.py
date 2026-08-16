@@ -64,6 +64,7 @@ class Config:
     vision_hour_start: int = 6           # local hour; the IR night view can't
     vision_hour_end: int = 20            # judge wetness, so don't pretend
     vision_max_age_min: int = 90         # older than this decides nothing
+    vision_preslot_min: int = 5          # extra look this long before a watering
     vision_min_confidence: float = 0.55
     vision_image_width: int = 1280
     # How far the camera may override the calendar. Skipping is time-capped

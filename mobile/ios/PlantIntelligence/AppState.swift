@@ -116,8 +116,6 @@ final class AppState {
                 note: "",
                 location: response.location?.name ?? "Garden",
                 client: client)
-            // The prediction just came true — don't also fire the local copy.
-            NotificationManager.shared.cancelPlanned()
         } else if !watering, LiveActivityManager.hasActive {
             // Covers the ordinary end, and also clears a card orphaned by a
             // crash or a hub-pushed start we never saw finish.
@@ -125,10 +123,8 @@ final class AppState {
         }
         wasWatering = watering
 
-        NotificationManager.shared.syncPlanned(
-            nextWateringAt: plan?.nextWaterDate,
-            durationSeconds: plan?.durationS,
-            isWatering: watering)
+        // Clears anything a previous build left queued on this device.
+        NotificationManager.shared.cancelPlanned()
     }
 
     /// Called once at launch and whenever the hub address changes.

@@ -2,22 +2,26 @@ import Foundation
 import UIKit
 import UserNotifications
 
-/// Notifications come from two places, deliberately:
+/// Watering notifications are pushed by the hub over APNs, and only ever by
+/// the hub. It is the one party that knows whether water actually ran.
 ///
-///  - **Scheduled locally** from the plan the hub publishes. These fire even
-///    if the board is unreachable or push was never set up, and they cover
-///    the ordinary cadence because we already know when it will water.
-///  - **Pushed by the hub** over APNs for anything unplanned — a manual run
-///    from the dashboard, or the failsafe firing while you're away.
+/// This used to also schedule a local pair in advance, predicted from the
+/// published plan, on the theory that they would arrive even with the board
+/// unreachable. They did, and that was the problem: a scheduled local
+/// notification can only be cancelled while the app is running. When the
+/// plan changed with the app closed (rain forecast, or the camera seeing the
+/// roof already wet) the stale pair fired anyway and announced a watering
+/// that never happened. A notification that says "your garden is being
+/// watered" is a claim about the world, and the phone is not in a position
+/// to make it.
 ///
-/// The two would otherwise double up, so a scheduled one is cancelled the
-/// moment the real watering it predicted actually starts.
+/// `cancelPlanned()` survives only to clear the pairs older builds queued on
+/// devices that still have them pending.
 @MainActor
 final class NotificationManager: NSObject {
   static let shared = NotificationManager()
 
   private let center = UNUserNotificationCenter.current()
-  private var scheduledFor: Date?
 
   private enum ID {
     static let plannedStart = "watering.planned.start"
@@ -45,57 +49,11 @@ final class NotificationManager: NSObject {
     }
   }
 
-  // MARK: - Locally scheduled, from the hub's plan
-
-  /// Keep the two planned notifications in step with the current plan.
-  /// Cheap to call on every status refresh: it no-ops unless the predicted
-  /// time actually moved.
-  func syncPlanned(nextWateringAt: Date?, durationSeconds: Int?, isWatering: Bool) {
-    guard isAuthorized else { return }
-
-    guard let start = nextWateringAt, !isWatering,
-      start.timeIntervalSinceNow > 60
-    else {
-      if scheduledFor != nil { cancelPlanned() }
-      return
-    }
-    guard scheduledFor.map({ abs($0.timeIntervalSince(start)) > 60 }) ?? true else {
-      return  // already scheduled for (near enough) this moment
-    }
-    scheduledFor = start
-
-    let duration = durationSeconds ?? 300
-    schedule(
-      id: ID.plannedStart, at: start,
-      title: "Watering starting",
-      body: "Your rooftop garden is being watered for about \(max(1, duration / 60)) min.")
-    schedule(
-      id: ID.plannedEnd, at: start.addingTimeInterval(TimeInterval(duration)),
-      title: "Watering finished",
-      body: "The scheduled watering is done.")
-  }
-
+  /// Drop any predicted pair an older build queued on this device. Without
+  /// this they stay pending in iOS and keep firing after the update.
   func cancelPlanned() {
-    scheduledFor = nil
     center.removePendingNotificationRequests(
       withIdentifiers: [ID.plannedStart, ID.plannedEnd])
-  }
-
-  private func schedule(id: String, at date: Date, title: String, body: String) {
-    guard date.timeIntervalSinceNow > 5 else { return }
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.body = body
-    content.sound = .default
-    content.interruptionLevel = .active
-    content.threadIdentifier = "watering"
-
-    let comps = Calendar.current.dateComponents(
-      [.year, .month, .day, .hour, .minute, .second], from: date)
-    let request = UNNotificationRequest(
-      identifier: id, content: content,
-      trigger: UNCalendarNotificationTrigger(dateMatching: comps, repeats: false))
-    center.add(request)
   }
 
   /// Fire something right now (used when the app itself starts a watering,

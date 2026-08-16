@@ -123,14 +123,20 @@ private struct CameraViewer: View {
                                       onReady: { videoReady = true },
                                       onFail: { videoFailed = true })
                             .opacity(videoReady ? 1 : 0)   // snapshot until frames flow
+                            .allowsHitTesting(false)
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .scaleEffect(scale)
                 .offset(offset)
-                .contentShape(.rect)
-                .gesture(zoomGesture(in: geometry.size))
-                .onTapGesture(count: 2) { resetZoom() }
+                .overlay {
+                    // AVPlayer's UIKit view otherwise wins hit testing in
+                    // the simulator and the SwiftUI magnifier never starts.
+                    Color.clear
+                        .contentShape(.rect)
+                        .gesture(zoomGesture(in: geometry.size))
+                        .onTapGesture(count: 2) { resetZoom() }
+                }
             }
             .ignoresSafeArea()
             .clipped()

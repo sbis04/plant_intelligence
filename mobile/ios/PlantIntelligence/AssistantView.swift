@@ -7,6 +7,8 @@ import SwiftUI
 struct AssistantOverlay: View {
     @Environment(AppState.self) private var app
     @State private var historyOpen = false
+    @State private var deleteConfirmationPresented = false
+    @State private var pendingDeletionID: Int?
 
     private let suggestions = [
         "Why aren't you watering?",
@@ -71,6 +73,20 @@ struct AssistantOverlay: View {
                 .zIndex(2)
         }
         .task { await app.resumeThreads() }   // auto-open the last conversation
+        .confirmationDialog(
+            "Delete conversation?",
+            isPresented: $deleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Conversation", role: .destructive) {
+                guard let id = pendingDeletionID else { return }
+                Haptics.notification(.warning)
+                Task { await app.deleteThread(id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This conversation and all of its messages will be permanently deleted.")
+        }
     }
 
     // MARK: pieces
@@ -177,8 +193,7 @@ struct AssistantOverlay: View {
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button(role: .destructive) {
-                                Haptics.notification(.warning)
-                                Task { await app.deleteThread(thread.id) }
+                                requestDeletion(thread.id)
                             } label: {
                                 Label("Delete conversation", systemImage: "trash")
                             }
@@ -193,12 +208,11 @@ struct AssistantOverlay: View {
                 Divider()
                     .overlay(Theme.line)
                 Button(role: .destructive) {
-                    Haptics.notification(.warning)
-                    withAnimation(.snappy) { historyOpen = false }
-                    Task { await app.deleteCurrentThread() }
+                    requestDeletion(app.currentThreadId)
                 } label: {
                     Label("Delete current conversation", systemImage: "trash")
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.err)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 13)
@@ -214,6 +228,11 @@ struct AssistantOverlay: View {
                 .strokeBorder(Theme.line, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.32), radius: 24, y: 12)
+    }
+
+    private func requestDeletion(_ id: Int) {
+        pendingDeletionID = id
+        deleteConfirmationPresented = true
     }
 
     private var emptyState: some View {

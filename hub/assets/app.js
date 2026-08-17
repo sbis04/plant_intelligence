@@ -139,23 +139,89 @@ async function refreshHistory() {
   } catch { /* keep last rendering */ }
 }
 
+// One renderer for both the card and the dialog. The card shows clock
+// times because everything on it is from the last hour or two; the dialog
+// spans days, so it needs the date as well.
+function renderLogRows(tbody, logs, withDate) {
+  tbody.innerHTML = "";
+  logs.forEach((l) => {
+    const tr = document.createElement("tr");
+    const t = new Date(l.timestamp);
+    const clock = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const when = withDate
+      ? `${t.toLocaleDateString([], { day: "2-digit", month: "short" })} ${clock}`
+      : clock;
+    tr.innerHTML =
+      `<td class="time">${when}</td>` +
+      `<td class="${l.is_error ? "err" : ""}"></td>` +
+      `<td class="trigger">${l.event_type}</td>`;
+    // textContent, not innerHTML: log lines carry model-written text and
+    // exception strings, neither of which should be able to inject markup.
+    tr.children[1].textContent = l.message;
+    tbody.appendChild(tr);
+  });
+}
+
 async function refreshLog() {
   try {
-    const res = await fetch("/api/logs");
+    const res = await fetch("/api/logs?limit=10");
     const { logs } = await res.json();
-    const tbody = $("log").querySelector("tbody");
-    tbody.innerHTML = "";
-    (logs || []).slice(0, 10).forEach((l) => {
-      const tr = document.createElement("tr");
-      const t = new Date(l.timestamp);
-      tr.innerHTML =
-        `<td class="time">${t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>` +
-        `<td class="${l.is_error ? "err" : ""}">${l.message}</td>` +
-        `<td class="trigger">${l.event_type}</td>`;
-      tbody.appendChild(tr);
-    });
+    renderLogRows($("log").querySelector("tbody"), logs || [], false);
   } catch { /* keep last rendering */ }
 }
+
+// ---- full log dialog -------------------------------------------------------
+let logHours = 24;
+
+async function loadFullLog() {
+  const tbody = $("log-full").querySelector("tbody");
+  $("log-modal-count").textContent = "Loading…";
+  try {
+    const res = await fetch(`/api/logs?limit=1000&hours=${logHours}`);
+    const { logs } = await res.json();
+    const rows = logs || [];
+    renderLogRows(tbody, rows, true);
+    $("log-modal-count").textContent = rows.length
+      ? `${rows.length} entr${rows.length === 1 ? "y" : "ies"} in the last ${logHours} hours`
+      : `Nothing logged in the last ${logHours} hours`;
+  } catch {
+    $("log-modal-count").textContent = "Could not reach the hub";
+  }
+}
+
+function markActiveFilter() {
+  $("log-filters").querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", Number(b.dataset.hours) === logHours);
+  });
+}
+
+function openLogModal() {
+  $("log-modal").hidden = false;
+  document.body.style.overflow = "hidden";
+  markActiveFilter();
+  loadFullLog();
+}
+
+function closeLogModal() {
+  $("log-modal").hidden = true;
+  document.body.style.overflow = "";
+}
+
+$("log-more").addEventListener("click", openLogModal);
+$("log-modal-close").addEventListener("click", closeLogModal);
+$("log-modal").addEventListener("click", (e) => {
+  if (e.target.id === "log-modal") closeLogModal();
+});
+$("log-filters").addEventListener("click", (e) => {
+  const hours = Number(e.target.dataset.hours);
+  if (!hours) return;
+  logHours = hours;
+  markActiveFilter();
+  loadFullLog();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("log-modal").hidden) closeLogModal();
+});
 
 $("location").addEventListener("click", async () => {
   const input = prompt("Garden location — place name, or \"lat, lon\":");

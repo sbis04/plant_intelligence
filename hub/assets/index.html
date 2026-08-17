@@ -90,7 +90,10 @@
             </section>
 
             <section class="card">
-              <h2>System log</h2>
+              <div class="card-head">
+                <h2>System log</h2>
+                <button id="log-more" class="link-btn" type="button">Show more</button>
+              </div>
               <table id="log"><tbody></tbody></table>
             </section>
           </div>
@@ -143,6 +146,24 @@
           <input type="file" id="attach-input" accept="image/*" hidden />
         </form>
       </aside>
+    </div>
+
+    <div id="log-modal" hidden>
+      <div id="log-modal-box">
+        <div id="log-modal-head">
+          <h2>System log</h2>
+          <div id="log-filters" role="group" aria-label="Time range">
+            <button type="button" data-hours="6">6 hours</button>
+            <button type="button" data-hours="24">24 hours</button>
+            <button type="button" data-hours="48">48 hours</button>
+          </div>
+          <button id="log-modal-close" type="button" aria-label="Close">✕</button>
+        </div>
+        <p id="log-modal-count"></p>
+        <div id="log-modal-body">
+          <table id="log-full"><tbody></tbody></table>
+        </div>
+      </div>
     </div>
 
     <div id="camera-modal" hidden>

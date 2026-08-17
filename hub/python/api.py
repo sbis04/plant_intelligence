@@ -88,8 +88,11 @@ def register(ui, ctx):
     def history():
         return {"history": ctx.store.recent_history(30)}
 
-    def logs():
-        return {"logs": ctx.store.recent_logs(50)}
+    def logs(limit: int = 50, hours: float = 0):
+        """The card shows the newest handful; the dashboard's log dialog
+        asks for a window (6/24/48 h) and a much larger limit."""
+        limit = max(1, min(int(limit), 1000))
+        return {"logs": ctx.store.recent_logs(limit, hours or None)}
 
     def get_config():
         from dataclasses import asdict

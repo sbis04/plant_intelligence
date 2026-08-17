@@ -94,12 +94,24 @@ class Store:
             )
             self._db.commit()
 
-    def recent_logs(self, limit: int = 50) -> list:
+    def recent_logs(self, limit: int = 50, hours: Optional[float] = None) -> list:
+        """Newest first. `hours` bounds how far back to look, which is what
+        the dashboard's time filter uses; timestamps are stored as UTC ISO
+        strings, so a string comparison is a valid ordering."""
         with self._lock:
-            rows = self._db.execute(
-                "SELECT timestamp, event_type, message, is_error FROM system_logs"
-                " ORDER BY id DESC LIMIT ?", (limit,),
-            ).fetchall()
+            if hours:
+                since = (datetime.now(timezone.utc)
+                         - timedelta(hours=hours)).isoformat()
+                rows = self._db.execute(
+                    "SELECT timestamp, event_type, message, is_error FROM system_logs"
+                    " WHERE timestamp >= ? ORDER BY id DESC LIMIT ?",
+                    (since, limit),
+                ).fetchall()
+            else:
+                rows = self._db.execute(
+                    "SELECT timestamp, event_type, message, is_error FROM system_logs"
+                    " ORDER BY id DESC LIMIT ?", (limit,),
+                ).fetchall()
         return [
             {"timestamp": r[0], "event_type": r[1], "message": r[2],
              "is_error": bool(r[3])}

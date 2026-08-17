@@ -96,7 +96,7 @@ def _parse_hhmm(s: str) -> dtime:
 
 
 def _apply_vision(cfg: Config, obs, rain_expected: bool, wet_hours: float,
-                  why: "Why") -> tuple:
+                  why: "Why", raining_reported: bool = False) -> tuple:
     """Let the camera correct the forecast.
 
     Returns (rain_expected, force, skip_note) — the note being how to phrase
@@ -134,15 +134,32 @@ def _apply_vision(cfg: Config, obs, rain_expected: bool, wet_hours: float,
 
     # The roof isn't wet enough to skip on. Now see whether the forecast's
     # rain claim survives contact with the actual roof.
+    #
+    # How much evidence that takes depends on what the forecast is claiming.
+    # "Rain likely in the next 12 h" is a prediction, and a dry roof refutes
+    # it outright. "It is raining right now" is a report of the present, and
+    # overriding it needs more than a model that has repeatedly mistaken
+    # dark weathered concrete for dry concrete: crisp sunlit shadows cannot
+    # coexist with falling rain, so that is the bar.
+    #
+    # A dry reading straight after a wet one is also treated as no opinion.
+    # Roofs do not dry in half an hour under a thunderstorm; a lone flipped
+    # frame is the model wobbling, not the weather changing.
+    flipped = obs.prev_ground in ("wet", "puddles")
     if rain_expected and not obs.raining_now:
-        if obs.is_dry:
-            why.camera = ("Camera: the roof is dry, so the forecast rain "
-                          "hasn't arrived here")
-            rain_expected = False
-        elif obs.light == "direct_sun":
-            # Crisp shadows and "it is raining right now" cannot both be true.
+        if obs.light == "direct_sun":
             why.camera = ("Camera: direct sunlight on the roof, so the "
                           "forecast rain hasn't arrived here")
+            rain_expected = False
+        elif obs.is_dry and flipped:
+            why.camera = ("Camera: reads dry, but it read wet a moment ago, "
+                          "so not trusting the change yet")
+        elif obs.is_dry and raining_reported:
+            why.camera = ("Camera: reads dry, but rain is being reported, "
+                          "so waiting for the roof to agree")
+        elif obs.is_dry:
+            why.camera = ("Camera: the roof is dry, so the forecast rain "
+                          "hasn't arrived here")
             rain_expected = False
 
     if obs.stressed and not obs.is_wet:
@@ -302,14 +319,17 @@ def compute_plan(
     skip = ("rain_hold", "rain is doing the watering")
     if vision is not None:
         rain_expected, force, verdict = _apply_vision(
-            cfg, vision, rain_expected, vision_wet_hours, why)
+            cfg, vision, rain_expected, vision_wet_hours, why,
+            raining_reported=bool(weather is not None and weather.is_raining_now))
         skip = verdict or skip
 
     # ---- soil overrides the calendar when available ---------------------------
     urgent = False
+    soil_block = False
     if soil_pct is not None:
         if soil_pct >= cfg.soil_skip_above_pct:
             interval_h = max(interval_h, cfg.base_interval_h * 1.5)
+            soil_block = True
             why.soil = f"Soil: wet ({soil_pct:.0f}%), postponing"
         elif soil_pct <= cfg.soil_water_below_pct:
             urgent = True
@@ -365,6 +385,16 @@ def compute_plan(
     def plan(water_now, next_water_at):
         return Plan(water_now, duration_s, next_water_at, interval_h,
                     why.to_list(), headline=why.decision, status=why.status)
+
+    # Wet soil is a measurement of the thing we actually care about, not a
+    # forecast about it. Never water into it, however long the calendar says
+    # it has been. This outranks the camera's drooping-plants call too:
+    # limp leaves over saturated soil mean too much water, not too little.
+    if soil_block:
+        if now >= due_at:
+            due_at = _snap_into_window(now + timedelta(hours=6), cfg)
+        why.decide("soil_hold", "Holding off: the soil is still wet")
+        return plan(False, due_at)
 
     if urgent and in_window:
         why.decide("due", "Watering now: the garden needs it")

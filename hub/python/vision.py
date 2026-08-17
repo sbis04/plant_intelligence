@@ -104,6 +104,11 @@ class Observation:
     wetness_source: str = "unclear"
     confidence: float = 0.0
     note: str = ""
+    # What the previous look reported. A single "dry" frame between wet ones
+    # is far more likely to be the model misreading dark weathered concrete
+    # than a roof that dried in half an hour, so the decision engine treats
+    # an unconfirmed flip as no opinion rather than as evidence.
+    prev_ground: str = ""
 
     # ---- derived meaning, so the decision engine doesn't re-derive it -------
     @property
@@ -217,6 +222,7 @@ class VisionService:
         )
         with self._lock:
             previous = self._latest
+            obs.prev_ground = previous.ground if previous else ""
             self._latest = obs
             if obs.is_wet:
                 self._wet_since = self._wet_since or now

@@ -169,6 +169,7 @@ private struct CameraViewer: View {
             }
             .padding(16)
         }
+        .ignoresSafeArea()
         .statusBarHidden()
         .onAppear {
             // While the viewer is up the whole interface may rotate freely —

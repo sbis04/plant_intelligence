@@ -52,6 +52,7 @@ class AppContext:
         self._open_watering_row = None
         self._pending_trigger = None   # trigger/reason for the next start event
         self._preslot_checked_for = None   # slot whose pre-watering look is done
+        self._last_command_at = None       # when we last told the MCU to water
 
         self.hardware.on_event(self._on_mcu_event)
 
@@ -81,8 +82,32 @@ class AppContext:
         self.recompute_plan()
 
     # ---- watering orchestration ---------------------------------------------
+    # The MCU reports its state on a 5 s telemetry cycle, so is_watering()
+    # is stale for a few seconds after a watering starts AND after one ends.
+    # This is how long our own command stays the authority instead.
+    COMMAND_SETTLE_S = 15
+
+    def watering_in_flight(self) -> bool:
+        """Is a watering running, starting, or finishing right now?
+
+        Three guards for three different windows, because the obvious one is
+        stale exactly when it matters:
+          is_watering()      - the steady state, but 5 s behind reality
+          _open_watering_row - set on the MCU's start event and cleared on
+                               its end event, so it covers the gap between
+                               the state going idle and the end arriving
+          _last_command_at   - covers the gap between us commanding a start
+                               and the MCU's start event coming back
+        """
+        if self.hardware.is_watering() or self._open_watering_row is not None:
+            return True
+        return (self._last_command_at is not None
+                and time.time() - self._last_command_at < self.COMMAND_SETTLE_S)
+
     def request_manual_watering(self, duration_s: int) -> bool:
-        if self.hardware.is_watering():
+        # A second tap inside the settle window would otherwise sail past
+        # is_watering() and be refused by the firmware instead.
+        if self.watering_in_flight():
             return False
         self._pending_trigger = ("manual", "requested via API")
         if not self.hardware.start_watering(duration_s):
@@ -91,19 +116,29 @@ class AppContext:
             self.store.log("SYSTEM", f"Watering command not accepted by the MCU ({err})",
                            is_error=True)
             return False
+        self._last_command_at = time.time()
         return True
 
     def execute_plan(self):
         plan = self.current_plan
-        if plan and plan.water_now and not self.hardware.is_watering():
-            self._pending_trigger = ("scheduled", "; ".join(plan.reasons))
-            if not self.hardware.start_watering(plan.duration_s):
-                # The MCU didn't take it. Leave the plan due so the next tick
-                # tries again rather than silently losing the watering.
-                self._pending_trigger = None
-                return
-            # Re-plan immediately so we don't double-trigger on the next tick.
-            self.recompute_plan()
+        if not plan or not plan.water_now:
+            return
+
+        if self.watering_in_flight():
+            return
+
+        self._pending_trigger = ("scheduled", "; ".join(plan.reasons))
+        if not self.hardware.start_watering(plan.duration_s):
+            # The MCU didn't take it. Leave the plan due so the next tick
+            # tries again rather than silently losing the watering.
+            self._pending_trigger = None
+            return
+        self._last_command_at = time.time()
+        # Mark the plan as acted on. Re-planning here would NOT do it: the
+        # history row is still open, so last_watering_end is unchanged and
+        # compute_plan would say "due" all over again. The real re-plan
+        # happens on the MCU's end event, once the row has closed.
+        plan.water_now = False
 
     def _on_mcu_event(self, name: str, label: str, is_error: bool):
         self.store.log("MCU", label, is_error)

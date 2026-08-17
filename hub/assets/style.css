@@ -217,6 +217,10 @@ td.err { color: var(--err); }
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .card-head h2 { margin: 0; }
 .link-btn {
+  /* margin-left:auto pins it to the right on its own, so the alignment
+     doesn't depend on the parent's justify-content surviving a stale
+     cached stylesheet */
+  margin-left: auto;
   border: 0; background: none; padding: 0; cursor: pointer;
   color: var(--accent); font-size: 0.82rem; font-family: inherit;
 }
@@ -232,15 +236,21 @@ td.err { color: var(--err); }
   display: flex; flex-direction: column;
   width: min(880px, 94vw); max-height: 86vh;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-  padding: 18px 20px;
+  /* no side padding: the scrolling body spans the full width so its
+     scrollbar lands on the box edge instead of floating 20px inside it */
+  padding: 18px 0;
 }
-#log-modal-head { display: flex; align-items: center; gap: 14px; }
+#log-modal-head {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 20px;
+}
 #log-modal-head h2 { margin: 0; flex: 0 0 auto; }
-#log-filters { display: flex; gap: 6px; margin-left: auto; }
+#log-filters { display: flex; flex-wrap: nowrap; gap: 6px; margin-left: auto; }
 #log-filters button {
   border: 1px solid var(--line); background: transparent; color: var(--muted);
   padding: 4px 10px; border-radius: 999px; cursor: pointer;
   font-size: 0.78rem; font-family: inherit;
+  white-space: nowrap;   /* "24 hours" must never break across two lines */
 }
 #log-filters button:hover { color: var(--text); }
 #log-filters button.active {
@@ -253,9 +263,27 @@ td.err { color: var(--err); }
   color: var(--text); font-size: 0.85rem; cursor: pointer;
 }
 #log-modal-close:hover { background: rgba(255, 255, 255, 0.06); }
-#log-modal-count { margin: 8px 0 4px; color: var(--muted); font-size: 0.8rem; }
+#log-modal-count {
+  margin: 8px 0 4px; padding: 0 20px;
+  color: var(--muted); font-size: 0.8rem;
+}
 /* the table scrolls, the dialog frame stays put */
-#log-modal-body { overflow-y: auto; margin-top: 4px; }
+#log-modal-body {
+  overflow-y: auto; margin-top: 4px; padding: 0 20px 4px;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: #3d5147 transparent;
+}
+/* WebKit: a slim dark thumb instead of the OS default white bar */
+#log-modal-body::-webkit-scrollbar { width: 10px; }
+#log-modal-body::-webkit-scrollbar-track { background: transparent; }
+#log-modal-body::-webkit-scrollbar-thumb {
+  background: #3d5147; border-radius: 999px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+#log-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #4f6759; background-clip: content-box;
+}
 #log-full { width: 100%; }
 #log-full td { padding: 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 #log-full td.time { white-space: nowrap; padding-right: 14px; }

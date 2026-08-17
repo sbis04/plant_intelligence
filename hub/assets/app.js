@@ -170,6 +170,25 @@ async function refreshLog() {
   } catch { /* keep last rendering */ }
 }
 
+// ---- scrollbars ------------------------------------------------------------
+// Styling ::-webkit-scrollbar opts out of the OS overlay scrollbar, which
+// would otherwise fade on its own, so put the fade back: mark whatever is
+// being scrolled and unmark it once it has been still for a moment.
+(() => {
+  const timers = new WeakMap();
+  const HIDE_AFTER_MS = 800;
+  document.addEventListener("scroll", (e) => {
+    const el = e.target === document || e.target === window
+      ? document.documentElement
+      : e.target;
+    if (!el || !el.classList) return;
+    el.classList.add("scrolling");
+    clearTimeout(timers.get(el));
+    timers.set(el, setTimeout(() => el.classList.remove("scrolling"),
+                              HIDE_AFTER_MS));
+  }, true);   // capture: scroll events don't bubble
+})();
+
 // ---- full log dialog -------------------------------------------------------
 let logHours = 24;
 

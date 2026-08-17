@@ -217,14 +217,22 @@ td.err { color: var(--err); }
    dashboard. Firefox takes the two standard properties; WebKit needs the
    pseudo-elements. The transparent border + background-clip trick gives the
    thumb breathing room without painting a visible track. */
-* { scrollbar-width: thin; scrollbar-color: #3d5147 transparent; }
+/* The gutter is always reserved, so nothing reflows when the thumb
+   appears; only the thumb's colour changes. app.js adds .scrolling to
+   whatever is being scrolled and removes it shortly after it stops. */
+* { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+*.scrolling { scrollbar-color: #3d5147 transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #3d5147; border-radius: 999px;
+  background: transparent; border-radius: 999px;
   border: 3px solid transparent; background-clip: content-box;
+  transition: background-color 0.35s ease;
 }
-::-webkit-scrollbar-thumb:hover {
+.scrolling::-webkit-scrollbar-thumb {
+  background: #3d5147; background-clip: content-box;
+}
+.scrolling::-webkit-scrollbar-thumb:hover {
   background: #4f6759; background-clip: content-box;
 }
 ::-webkit-scrollbar-corner { background: transparent; }

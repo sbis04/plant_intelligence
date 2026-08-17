@@ -213,14 +213,31 @@ td.trigger { color: var(--muted); text-align: right; white-space: nowrap; }
 td.time { color: var(--muted); white-space: nowrap; }
 td.err { color: var(--err); }
 
+/* scrollbars, everywhere: the OS default light bar is jarring on a dark
+   dashboard. Firefox takes the two standard properties; WebKit needs the
+   pseudo-elements. The transparent border + background-clip trick gives the
+   thumb breathing room without painting a visible track. */
+* { scrollbar-width: thin; scrollbar-color: #3d5147 transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #3d5147; border-radius: 999px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4f6759; background-clip: content-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* system log: header action + full-log dialog */
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .card-head h2 { margin: 0; }
 .link-btn {
-  /* margin-left:auto pins it to the right on its own, so the alignment
-     doesn't depend on the parent's justify-content surviving a stale
-     cached stylesheet */
-  margin-left: auto;
+  /* The global `button { flex: 1 }` (meant for the Water now / Stop pair)
+     would otherwise make this grow across the whole header and centre its
+     own label, which reads as "not right aligned" when the element is in
+     fact already flush right. Shrink to the text instead. */
+  flex: 0 0 auto;
   border: 0; background: none; padding: 0; cursor: pointer;
   color: var(--accent); font-size: 0.82rem; font-family: inherit;
 }
@@ -247,6 +264,7 @@ td.err { color: var(--err); }
 #log-modal-head h2 { margin: 0; flex: 0 0 auto; }
 #log-filters { display: flex; flex-wrap: nowrap; gap: 6px; margin-left: auto; }
 #log-filters button {
+  flex: 0 0 auto;        /* same story: don't inherit the global flex: 1 */
   border: 1px solid var(--line); background: transparent; color: var(--muted);
   padding: 4px 10px; border-radius: 999px; cursor: pointer;
   font-size: 0.78rem; font-family: inherit;
@@ -270,19 +288,6 @@ td.err { color: var(--err); }
 /* the table scrolls, the dialog frame stays put */
 #log-modal-body {
   overflow-y: auto; margin-top: 4px; padding: 0 20px 4px;
-  /* Firefox */
-  scrollbar-width: thin;
-  scrollbar-color: #3d5147 transparent;
-}
-/* WebKit: a slim dark thumb instead of the OS default white bar */
-#log-modal-body::-webkit-scrollbar { width: 10px; }
-#log-modal-body::-webkit-scrollbar-track { background: transparent; }
-#log-modal-body::-webkit-scrollbar-thumb {
-  background: #3d5147; border-radius: 999px;
-  border: 3px solid transparent; background-clip: content-box;
-}
-#log-modal-body::-webkit-scrollbar-thumb:hover {
-  background: #4f6759; background-clip: content-box;
 }
 #log-full { width: 100%; }
 #log-full td { padding: 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }

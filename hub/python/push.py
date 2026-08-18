@@ -67,6 +67,33 @@ class PushService:
             self._client = httpx.Client(http2=True, timeout=10.0)
         return self._client
 
+    def probe(self, token: str, payload: dict, push_type: str,
+              topic_suffix: str = "") -> dict:
+        """Try both APNs environments and report what each said, without
+        deleting anything. `_post` prunes on BadDeviceToken, which destroys
+        the evidence when the real fault is a topic or key mismatch rather
+        than a dead device."""
+        headers = {
+            "authorization": f"bearer {self._auth_token()}",
+            "apns-topic": self._config.apns_bundle_id + topic_suffix,
+            "apns-push-type": push_type,
+            "apns-priority": "10",
+            "apns-expiration": "0",
+        }
+        out = {"topic": headers["apns-topic"], "token": token[:12] + "…"}
+        for name, host in (("sandbox", SANDBOX_HOST), ("production", PROD_HOST)):
+            try:
+                r = self._http().post(f"{host}/3/device/{token}",
+                                      headers=headers, content=json.dumps(payload))
+                try:
+                    reason = r.json().get("reason", "")
+                except Exception:
+                    reason = r.text[:120]
+                out[name] = f"{r.status_code} {reason}".strip()
+            except Exception as e:
+                out[name] = f"{type(e).__name__}: {e}"
+        return out
+
     def _post(self, token: str, payload: dict, push_type: str,
               topic_suffix: str = "", priority: str = "10",
               expiration: int = 0) -> bool:
@@ -102,9 +129,18 @@ class PushService:
             if attempt == 0 and reason == "BadDeviceToken":
                 continue
             self.last_error = f"{r.status_code} {reason}"
-            if r.status_code == 410 or reason in ("BadDeviceToken", "Unregistered"):
+            # Only 410/Unregistered means "this app is gone from that
+            # device". BadDeviceToken means the token doesn't match this
+            # environment or topic, which is a configuration answer, not a
+            # dead phone: deleting on it threw away a perfectly good
+            # TestFlight token twice before this was understood.
+            if r.status_code == 410 or reason == "Unregistered":
                 self._store.push_token_delete(token)
-                self._log("SYSTEM", "Dropped a stale push token")
+                self._log("SYSTEM", "Dropped a token whose app was uninstalled")
+            elif reason == "BadDeviceToken":
+                self._log("SYSTEM",
+                          "APNs rejected a token in both environments "
+                          "(check bundle id / key): keeping it for now", True)
             return False
         return False
 

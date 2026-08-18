@@ -314,7 +314,36 @@ def register(ui, ctx):
     ui.expose_api("GET", "/api/camera/hls/segment.m4s", camera_hls_segment)
     ui.expose_api("POST", "/api/camera/config", camera_config)
     ui.expose_api("POST", "/api/assistant/config", assistant_config)
+    def push_diagnose():
+        """What APNs says about each registered token, in both environments.
+        Read-only: nothing is pruned, so the answer stays reproducible."""
+        if not ctx.push or not ctx.push.configured:
+            return {"error": "push not configured"}
+        cfg = ctx.config
+        payload = {"aps": {"alert": {"title": "Plant Intelligence",
+                                     "body": "Diagnostic push."}}}
+        results = []
+        for kind in ("alert", "activity-start"):
+            for token in ctx.store.push_tokens(kind):
+                suffix = ctx.push.LA_SUFFIX if kind == "activity-start" else ""
+                ptype = "liveactivity" if kind == "activity-start" else "alert"
+                body = payload
+                if kind == "activity-start":
+                    body = {"aps": {"timestamp": 0, "event": "update",
+                                    "content-state": {}}}
+                r = ctx.push.probe(token, body, ptype, topic_suffix=suffix)
+                r["kind"] = kind
+                results.append(r)
+        return {
+            "bundle_id": cfg.apns_bundle_id,
+            "key_id": cfg.apns_key_id,
+            "team_id": cfg.apns_team_id,
+            "configured_env": "sandbox" if cfg.apns_use_sandbox else "production",
+            "tokens": results,
+        }
+
     ui.expose_api("POST", "/api/push/register", push_register)
+    ui.expose_api("GET", "/api/push/diagnose", push_diagnose)
     ui.expose_api("POST", "/api/push/config", push_config)
     ui.expose_api("POST", "/api/push/test", push_test)
     ui.expose_api("POST", "/api/water", water)

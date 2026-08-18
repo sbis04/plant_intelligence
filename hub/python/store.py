@@ -305,6 +305,20 @@ class Store:
             self._db.commit()
             return cur.rowcount
 
+    def push_token_age_s(self, token: str) -> float:
+        """Seconds since this token was last registered; inf if unknown."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT updated_at FROM push_tokens WHERE token = ?", (token,)
+            ).fetchone()
+        if not row:
+            return float("inf")
+        try:
+            return (datetime.now(timezone.utc)
+                    - datetime.fromisoformat(row[0])).total_seconds()
+        except ValueError:
+            return float("inf")
+
     def push_token_save(self, token: str, kind: str):
         """Register a device/activity token. An activity-update token belongs
         to exactly one live activity, so a new one replaces the old."""

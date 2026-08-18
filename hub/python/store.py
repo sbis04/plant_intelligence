@@ -289,21 +289,30 @@ class Store:
             self._db.commit()
 
     # ---- push tokens ------------------------------------------------------------
-    def push_token_prune(self, days: int = 30) -> int:
-        """Forget alert tokens no app has refreshed in a long time.
+    # How long a token may go unrefreshed before we forget it. The app
+    # re-registers on every launch, so silence means the install is gone.
+    # An activity-update token belongs to one card and is worthless once
+    # that watering is over, so it expires far sooner.
+    TOKEN_TTL_DAYS = {"alert": 30, "activity-start": 30, "activity-update": 2}
+
+    def push_token_prune(self) -> int:
+        """Forget tokens no app has refreshed in a long time.
 
         APNs accepts a well-formed token from an old install or a wiped
         simulator and reports success, so dead tokens make "notified 4
-        devices" mean nothing. The app re-registers on every launch, so a
-        token that has gone quiet for a month is gone.
+        devices" mean nothing.
         """
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        removed = 0
+        now = datetime.now(timezone.utc)
         with self._lock:
-            cur = self._db.execute(
-                "DELETE FROM push_tokens WHERE kind = 'alert' AND updated_at < ?",
-                (cutoff,))
+            for kind, days in self.TOKEN_TTL_DAYS.items():
+                cutoff = (now - timedelta(days=days)).isoformat()
+                cur = self._db.execute(
+                    "DELETE FROM push_tokens WHERE kind = ? AND updated_at < ?",
+                    (kind, cutoff))
+                removed += cur.rowcount
             self._db.commit()
-            return cur.rowcount
+        return removed
 
     def push_token_age_s(self, token: str) -> float:
         """Seconds since this token was last registered; inf if unknown."""
@@ -320,14 +329,17 @@ class Store:
             return float("inf")
 
     def push_token_save(self, token: str, kind: str):
-        """Register a device/activity token. An activity-update token belongs
-        to exactly one live activity, so a new one replaces the old."""
+        """Register a device/activity token.
+
+        Every kind keeps one row per device. This used to wipe all rows of
+        an activity kind on each registration, which looked fine with one
+        phone and quietly broke the moment there were two: the second phone
+        to open the app deleted the first one's token, so only one device
+        could ever receive a watering card. Superseded tokens are retired by
+        age and by APNs telling us the app is gone, not by assuming the
+        newest registration is the only real device.
+        """
         with self._lock:
-            # Activity tokens are per-activity (update) or reissued per app
-            # install (start) — only the newest is ever valid, and pushing to
-            # a superseded one is silently ignored by Apple.
-            if kind in ("activity-update", "activity-start"):
-                self._db.execute("DELETE FROM push_tokens WHERE kind = ?", (kind,))
             self._db.execute(
                 "INSERT INTO push_tokens (token, kind, updated_at) VALUES (?, ?, ?)"
                 " ON CONFLICT(token) DO UPDATE SET kind = excluded.kind,"

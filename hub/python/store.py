@@ -289,6 +289,22 @@ class Store:
             self._db.commit()
 
     # ---- push tokens ------------------------------------------------------------
+    def push_token_prune(self, days: int = 30) -> int:
+        """Forget alert tokens no app has refreshed in a long time.
+
+        APNs accepts a well-formed token from an old install or a wiped
+        simulator and reports success, so dead tokens make "notified 4
+        devices" mean nothing. The app re-registers on every launch, so a
+        token that has gone quiet for a month is gone.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._lock:
+            cur = self._db.execute(
+                "DELETE FROM push_tokens WHERE kind = 'alert' AND updated_at < ?",
+                (cutoff,))
+            self._db.commit()
+            return cur.rowcount
+
     def push_token_save(self, token: str, kind: str):
         """Register a device/activity token. An activity-update token belongs
         to exactly one live activity, so a new one replaces the old."""

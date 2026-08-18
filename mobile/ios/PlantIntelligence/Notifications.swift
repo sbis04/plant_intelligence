@@ -38,11 +38,18 @@ final class NotificationManager: NSObject {
 
   func bootstrap() async {
     center.delegate = self
-    do {
-      isAuthorized = try await center.requestAuthorization(
-        options: [.alert, .sound, .badge, .timeSensitive])
-    } catch {
-      isAuthorized = false
+    // Ask only when iOS has never asked. Once permission has been decided,
+    // read the real setting instead: a permission granted later in iOS
+    // Settings has to reach registerForRemoteNotifications() too, or the
+    // hub never learns this device's token and every alert it sends goes
+    // to whatever stale tokens it still has.
+    let settings = await center.notificationSettings()
+    if settings.authorizationStatus == .notDetermined {
+      isAuthorized = (try? await center.requestAuthorization(
+        options: [.alert, .sound, .badge, .timeSensitive])) ?? false
+    } else {
+      isAuthorized = settings.authorizationStatus == .authorized
+        || settings.authorizationStatus == .provisional
     }
     if isAuthorized {
       UIApplication.shared.registerForRemoteNotifications()

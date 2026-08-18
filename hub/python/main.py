@@ -14,10 +14,17 @@ The MCU waters on its own conservative timer if this process dies — that
 failsafe is tested by killing this process, not by trusting this comment.
 """
 
+import socket
 import threading
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+# Backstop for every library that forgets to pass a timeout. urllib3 (and
+# therefore requests, and therefore the weather Brick) falls back to the
+# socket default, so this caps calls we don't control. Belt to the braces
+# of keeping network work off the scheduler thread entirely.
+socket.setdefaulttimeout(20)
 
 from arduino.app_utils import App
 from arduino.app_bricks.web_ui import WebUI
@@ -39,7 +46,8 @@ class AppContext:
         self.tz = ZoneInfo(self.config.timezone)
         self.store = Store()
         self.hardware = Hardware()
-        self.weather_svc = WeatherService(self.config)
+        self.weather_svc = WeatherService(self.config,
+                                          on_update=self.recompute_plan)
         self.cloud = NullSync()   # future Firebase sync plugs in here (see cloud.py)
 
         self.current_plan = None
@@ -86,6 +94,10 @@ class AppContext:
     # is stale for a few seconds after a watering starts AND after one ends.
     # This is how long our own command stays the authority instead.
     COMMAND_SETTLE_S = 15
+
+    # FAILSAFE_DURATION_MS in sketch.ino. The MCU picks this itself when it
+    # waters without us, so the phone card has to be told the same number.
+    MCU_FAILSAFE_DURATION_S = 300
 
     def watering_in_flight(self) -> bool:
         """Is a watering running, starting, or finishing right now?
@@ -167,8 +179,18 @@ class AppContext:
             return
         try:
             snap = self.hardware.snapshot()
-            duration = snap.get("watering_seconds_left") or (
-                self.current_plan.duration_s if self.current_plan else 300)
+            # At the moment the start event lands the MCU still reports 0
+            # seconds left, so this falls through to a planned duration. A
+            # failsafe run is the MCU's own fixed 5 minutes, not whatever
+            # the plan happened to want.
+            reported = snap.get("watering_seconds_left") or 0
+            if reported > 0:
+                duration = reported
+            elif trigger == "failsafe":
+                duration = self.MCU_FAILSAFE_DURATION_S
+            else:
+                duration = (self.current_plan.duration_s
+                            if self.current_plan else 300)
             state = {
                 "endsAtEpoch": time.time() + duration,
                 "totalSeconds": int(duration),
@@ -187,12 +209,22 @@ class AppContext:
                 "failsafe": "The microcontroller started watering on its own — "
                             "it hadn't heard from the hub.",
             }.get(trigger, reason or f"Running for about {int(duration / 60)} min.")
-            self.push.activity_start(
+            cards = self.push.activity_start(
                 state, attributes,
                 alert={"title": titles.get(trigger, "Watering started"), "body": body})
-            self.push.notify(titles.get(trigger, "Watering started"), body,
-                             interruption="time-sensitive" if trigger == "failsafe"
-                             else "active")
+            alerts = self.push.notify(
+                titles.get(trigger, "Watering started"), body,
+                interruption="time-sensitive" if trigger == "failsafe" else "active")
+            # Say how many actually went out. Silence here previously looked
+            # identical to success, so a watering with no notification gave
+            # nothing to investigate afterwards.
+            if not alerts:
+                self.store.log("SYSTEM",
+                               "Watering started but no phone accepted the alert",
+                               is_error=True)
+            else:
+                self.store.log("SYSTEM",
+                               f"Notified {alerts} device(s), {cards} live card(s)")
         except Exception as e:
             self.store.log("SYSTEM", f"Push (start) failed: {e}", is_error=True)
 
@@ -212,9 +244,14 @@ class AppContext:
             if self.current_plan and self.current_plan.next_water_at:
                 nxt = " Next: " + self.current_plan.next_water_at.strftime(
                     "%a %d %b, %I:%M %p")
-            self.push.notify("Watering finished" if not stopped else "Watering stopped",
-                             ("The garden has been watered." if not stopped
-                              else "Stopped by request.") + nxt)
+            alerts = self.push.notify(
+                "Watering finished" if not stopped else "Watering stopped",
+                ("The garden has been watered." if not stopped
+                 else "Stopped by request.") + nxt)
+            if not alerts:
+                self.store.log("SYSTEM",
+                               "Watering ended but no phone accepted the alert",
+                               is_error=True)
         except Exception as e:
             self.store.log("SYSTEM", f"Push (end) failed: {e}", is_error=True)
 
@@ -318,6 +355,9 @@ def main():
     api.register(ui, ctx)
 
     ctx.store.log("SYSTEM", "Plant Intelligence hub started")
+    gone = ctx.store.push_token_prune()
+    if gone:
+        ctx.store.log("SYSTEM", f"Forgot {gone} phone token(s) that stopped checking in")
     stale = ctx.store.close_stale_open_rows()
     if stale:
         ctx.store.log("SYSTEM", f"Closed {stale} watering record(s) left open by a restart")
@@ -329,6 +369,28 @@ def main():
 
     last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0,
             "locate": time.time(), "leds": 0.0, "vision": 0.0, "due": 0.0}
+    heartbeat = {"tick": time.time(), "warned": False}
+
+    def watchdog():
+        """Say something when the scheduler stops ticking.
+
+        A wedged tick is silent by nature: the web server keeps answering
+        and the MCU keeps sending telemetry, so everything looks alive while
+        nothing is being decided. This is how that becomes visible.
+        """
+        while True:
+            time.sleep(30)
+            stalled = time.time() - heartbeat["tick"]
+            if stalled > 120 and not heartbeat["warned"]:
+                heartbeat["warned"] = True
+                ctx.store.log("SYSTEM",
+                              f"Scheduler has not ticked for {stalled:.0f}s: "
+                              "watering decisions are stalled", is_error=True)
+            elif stalled <= 120 and heartbeat["warned"]:
+                heartbeat["warned"] = False
+                ctx.store.log("SYSTEM", "Scheduler is ticking again")
+
+    threading.Thread(target=watchdog, name="tick-watchdog", daemon=True).start()
     led_state = {"mode": -1, "healthy": None}
 
     def service_leds():
@@ -362,6 +424,7 @@ def main():
         # one second of work.
         try:
             tick()
+            heartbeat["tick"] = time.time()
         except Exception as e:
             ctx.store.log("SYSTEM", f"Scheduler tick failed: {e!r}", is_error=True)
         time.sleep(1)

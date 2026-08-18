@@ -12,6 +12,7 @@ weather as "neutral" rather than erroring.
 """
 
 import json
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass
@@ -50,11 +51,25 @@ class WeatherSummary:
 
 
 class WeatherService:
-    def __init__(self, config):
+    """Fetches in the background, answers from cache.
+
+    `get()` used to fetch inline, on the scheduler thread. The Brick's
+    forecast call has no timeout of its own, and one half-open TLS
+    connection wedged that thread for eighteen hours: no plans, no camera
+    looks, and no heartbeat to the MCU, which eventually concluded Linux
+    was dead and watered on its own failsafe. Nothing on the network is
+    allowed to stall a watering decision again, so the fetch happens on its
+    own thread and `get()` never blocks.
+    """
+
+    def __init__(self, config, on_update=None):
         self._config = config           # live reference: location may be set later
         self._cache: Optional[WeatherSummary] = None
         self._cache_key = None
         self._brick = WeatherForecast() if WeatherForecast else None
+        self._lock = threading.Lock()
+        self._fetching = False
+        self._on_update = on_update     # called after a successful refresh
 
     @property
     def lat(self):
@@ -65,12 +80,44 @@ class WeatherService:
         return self._config.longitude
 
     def get(self) -> Optional[WeatherSummary]:
+        """The cached summary, refreshing in the background when stale.
+        Returns None only before the very first fetch lands; the decision
+        engine already treats missing weather as neutral."""
         key = (round(self.lat, 3), round(self.lon, 3))
-        if (self._cache and self._cache_key == key
-                and time.time() - self._cache.fetched_at < CACHE_TTL_S):
-            return self._cache
-        self._cache_key = key
+        cache = self._cache
+        if (cache and self._cache_key == key
+                and time.time() - cache.fetched_at < CACHE_TTL_S):
+            return cache
+        self._refresh_soon(key)
+        return cache if self._cache_key == key else None
 
+    def _refresh_soon(self, key):
+        with self._lock:
+            if self._fetching:
+                return
+            self._fetching = True
+        threading.Thread(target=self._refresh, args=(key,),
+                         name="weather-refresh", daemon=True).start()
+
+    def _refresh(self, key):
+        try:
+            summary = self._fetch()
+        except Exception:
+            summary = None
+        finally:
+            with self._lock:
+                self._fetching = False
+        if summary is None:
+            return
+        self._cache_key = key
+        self._cache = summary
+        if self._on_update:
+            try:
+                self._on_update()
+            except Exception:
+                pass
+
+    def _fetch(self) -> Optional[WeatherSummary]:
         summary = WeatherSummary(fetched_at=time.time())
 
         if self._brick:
@@ -82,7 +129,7 @@ class WeatherService:
                 if summary.category and str(summary.category).upper() in RAINY_CATEGORIES:
                     summary.is_raining_now = True
             except Exception:
-                pass  # Brick unavailable — the numbers below still work
+                pass  # Brick unavailable or slow: the numbers below still work
 
         try:
             hours = 12
@@ -107,8 +154,8 @@ class WeatherService:
         except Exception:
             pass
 
-        # Only cache if we got something useful; otherwise retry sooner.
+        # Only accept it if we got something useful; a blank summary would
+        # otherwise overwrite good data and reset the cache clock.
         if summary.category or summary.temp_max_next12h is not None:
-            self._cache = summary
             return summary
-        return self._cache
+        return None

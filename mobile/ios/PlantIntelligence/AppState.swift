@@ -106,12 +106,18 @@ final class AppState {
         let plan = response.plan
 
         if watering, !wasWatering {
-            let left = response.status.wateringSecondsLeft ?? plan?.durationS ?? 300
+            // `isWatering` is already true during valve_opening, when the MCU
+            // still reports 0 seconds left. `??` only fills in for nil, not
+            // for 0, so this used to build a card that had already finished:
+            // 0:00 remaining and a full progress bar. Treat any non-positive
+            // reading as "not known yet" and fall back to the planned run.
+            let reported = response.status.wateringSecondsLeft ?? 0
+            let left = reported > 0 ? reported : (plan?.durationS ?? 300)
             // The hub owns the notification; the card is started locally so
             // it appears instantly when the app is the one watching.
             LiveActivityManager.start(
                 endsAt: Date().addingTimeInterval(TimeInterval(left)),
-                totalSeconds: plan?.durationS ?? left,
+                totalSeconds: left,
                 trigger: history.first?.trigger ?? "scheduled",
                 note: "",
                 location: response.location?.name ?? "Garden",

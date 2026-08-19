@@ -1,14 +1,18 @@
 """Weather intake.
 
-Two sources, deliberately:
-  - the App Lab weather_forecast Brick for the current-conditions category
-    (simple, no key, part of the platform)
-  - Open-Meteo's hourly forecast (same upstream the Brick uses, also keyless)
-    for the numbers the cadence math needs: max temperature and max
-    precipitation probability over the next 12 hours.
+One source: Open-Meteo, keyless, read with an explicit timeout.
 
-Both are cached and both fail soft — the decision engine treats missing
-weather as "neutral" rather than erroring.
+This used to also call the App Lab weather_forecast Brick for the
+conditions text. That Brick uses `requests.get()` with no timeout, and
+`requests` passes `timeout=None` down explicitly, which overrides
+`socket.setdefaulttimeout()` — so a half-open TLS handshake hangs forever
+and no global setting can save it. It froze the scheduler once, and after
+the fetch was moved onto its own thread it simply froze that thread instead
+and wedged the refresh flag, leaving the weather permanently stale.
+
+Open-Meteo already returns a WMO weather code, so the category and the
+description come from the same response as the numbers, and every call this
+module makes now has a deadline it cannot exceed.
 """
 
 import json
@@ -18,13 +22,40 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
-try:
-    from arduino.app_bricks.weather_forecast import WeatherForecast
-except ImportError:          # running off-board (tests, development)
-    WeatherForecast = None
-
 RAINY_CATEGORIES = {"RAINY", "RAIN", "DRIZZLE", "THUNDERSTORM", "SHOWERS"}
 CACHE_TTL_S = 30 * 60
+FETCH_TIMEOUT_S = 10
+
+# WMO weather interpretation codes, as returned by Open-Meteo.
+WMO = {
+    0: ("CLEAR", "Clear sky"),
+    1: ("SUNNY", "Mainly clear"),
+    2: ("CLOUDY", "Partly cloudy"),
+    3: ("CLOUDY", "Overcast"),
+    45: ("FOG", "Fog"), 48: ("FOG", "Depositing rime fog"),
+    51: ("DRIZZLE", "Light drizzle"),
+    53: ("DRIZZLE", "Moderate drizzle"),
+    55: ("DRIZZLE", "Dense drizzle"),
+    56: ("DRIZZLE", "Light freezing drizzle"),
+    57: ("DRIZZLE", "Dense freezing drizzle"),
+    61: ("RAIN", "Slight rain"),
+    63: ("RAIN", "Moderate rain"),
+    65: ("RAIN", "Heavy rain"),
+    66: ("RAIN", "Light freezing rain"),
+    67: ("RAIN", "Heavy freezing rain"),
+    71: ("SNOW", "Slight snowfall"),
+    73: ("SNOW", "Moderate snowfall"),
+    75: ("SNOW", "Heavy snowfall"),
+    77: ("SNOW", "Snow grains"),
+    80: ("SHOWERS", "Slight rain showers"),
+    81: ("SHOWERS", "Moderate rain showers"),
+    82: ("SHOWERS", "Violent rain showers"),
+    85: ("SNOW", "Slight snow showers"),
+    86: ("SNOW", "Heavy snow showers"),
+    95: ("THUNDERSTORM", "Thunderstorm"),
+    96: ("THUNDERSTORM", "Thunderstorm with slight hail"),
+    99: ("THUNDERSTORM", "Thunderstorm with heavy hail"),
+}
 
 
 @dataclass
@@ -66,9 +97,8 @@ class WeatherService:
         self._config = config           # live reference: location may be set later
         self._cache: Optional[WeatherSummary] = None
         self._cache_key = None
-        self._brick = WeatherForecast() if WeatherForecast else None
         self._lock = threading.Lock()
-        self._fetching = False
+        self._fetch_started = 0.0
         self._on_update = on_update     # called after a successful refresh
 
     @property
@@ -93,9 +123,11 @@ class WeatherService:
 
     def _refresh_soon(self, key):
         with self._lock:
-            if self._fetching:
+            # A timestamp rather than a bool: if a fetch ever does wedge, the
+            # flag frees itself instead of blocking every future refresh.
+            if time.time() - self._fetch_started < 2 * FETCH_TIMEOUT_S:
                 return
-            self._fetching = True
+            self._fetch_started = time.time()
         threading.Thread(target=self._refresh, args=(key,),
                          name="weather-refresh", daemon=True).start()
 
@@ -106,7 +138,7 @@ class WeatherService:
             summary = None
         finally:
             with self._lock:
-                self._fetching = False
+                self._fetch_started = 0.0
         if summary is None:
             return
         self._cache_key = key
@@ -120,31 +152,25 @@ class WeatherService:
     def _fetch(self) -> Optional[WeatherSummary]:
         summary = WeatherSummary(fetched_at=time.time())
 
-        if self._brick:
-            try:
-                fc = self._brick.get_forecast_by_coords(
-                    latitude=str(self.lat), longitude=str(self.lon))
-                summary.category = getattr(fc, "category", None)
-                summary.description = getattr(fc, "description", None)
-                if summary.category and str(summary.category).upper() in RAINY_CATEGORIES:
-                    summary.is_raining_now = True
-            except Exception:
-                pass  # Brick unavailable or slow: the numbers below still work
-
         try:
             hours = 12
             url = (
                 "https://api.open-meteo.com/v1/forecast"
                 f"?latitude={self.lat}&longitude={self.lon}"
-                "&current=temperature_2m,relative_humidity_2m"
+                "&current=temperature_2m,relative_humidity_2m,weather_code"
                 "&hourly=temperature_2m,precipitation_probability"
                 f"&forecast_hours={hours}&timezone=auto"
             )
-            with urllib.request.urlopen(url, timeout=10) as r:
+            with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT_S) as r:
                 data = json.load(r)
             current = data.get("current") or {}
             summary.temp_now_c = current.get("temperature_2m")
             summary.humidity_now_pct = current.get("relative_humidity_2m")
+            code = current.get("weather_code")
+            if code is not None:
+                summary.category, summary.description = WMO.get(
+                    int(code), ("UNKNOWN", f"Weather code {int(code)}"))
+                summary.is_raining_now = summary.category in RAINY_CATEGORIES
             temps = data.get("hourly", {}).get("temperature_2m") or []
             probs = data.get("hourly", {}).get("precipitation_probability") or []
             if temps:

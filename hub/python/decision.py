@@ -268,6 +268,8 @@ def compute_plan(
     last_watering_end: Optional[datetime],
     vision=None,                        # vision.Observation, if recent enough
     vision_wet_hours: float = 0.0,
+    soil_expected: bool = False,        # a probe is fitted, reading or not
+    soil_block_hours: float = 0.0,      # how long soil has been blocking
 ) -> Plan:
     why = Why()
     interval_h = cfg.base_interval_h
@@ -276,7 +278,14 @@ def compute_plan(
     # No moisture reading → fixed slots, flat dose. Weather's only remaining
     # say is skipping a slot rain would waste. Calibrating the probe switches
     # the adaptive cadence back on by itself.
-    fixed = soil_pct is None and cfg.fixed_when_no_soil and bool(cfg.fixed_times)
+    #
+    # `soil_expected` matters: for the first seconds after a restart a fitted
+    # probe reads None simply because the MCU has not reported yet. Treating
+    # that as "no probe" dropped the hub into fixed mode, where a restart
+    # shortly after 07:00 or 17:00 fired that slot's watering into soil that
+    # was already saturated.
+    fixed = (soil_pct is None and not soil_expected
+             and cfg.fixed_when_no_soil and bool(cfg.fixed_times))
 
     # ---- weather shapes the cadence and the dose (adaptive mode only) --------
     # Everything the forecast has to say lands on ONE line. Three separate
@@ -391,6 +400,16 @@ def compute_plan(
     # it has been. This outranks the camera's drooping-plants call too:
     # limp leaves over saturated soil mean too much water, not too little.
     if soil_block:
+        # A probe reading high forever is indistinguishable from a garden
+        # that never dries, and one of those kills plants. The camera gets
+        # the same treatment for a stuck "wet" reading: believe it, but not
+        # indefinitely.
+        if soil_block_hours > cfg.soil_max_block_hours:
+            why.decide("due",
+                       f"Watering now: the soil has read wet for "
+                       f"{soil_block_hours:.0f} h without drying, which looks "
+                       "like a calibration problem rather than wet soil")
+            return plan(True, None)
         if now >= due_at:
             due_at = _snap_into_window(now + timedelta(hours=6), cfg)
         why.decide("soil_hold", "Holding off: the soil is still wet")

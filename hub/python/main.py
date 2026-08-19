@@ -61,6 +61,8 @@ class AppContext:
         self._pending_trigger = None   # trigger/reason for the next start event
         self._preslot_checked_for = None   # slot whose pre-watering look is done
         self._last_command_at = None       # when we last told the MCU to water
+        self._warmup_logged = False        # said "waiting for sensors" once
+        self._soil_block_since = None      # when soil last started blocking
 
         self.hardware.on_event(self._on_mcu_event)
 
@@ -134,6 +136,12 @@ class AppContext:
     def execute_plan(self):
         plan = self.current_plan
         if not plan or not plan.water_now:
+            return
+        if not self.sensors_ready():
+            if not self._warmup_logged:
+                self._warmup_logged = True
+                self.store.log("SYSTEM",
+                               "Holding off until the sensors report in")
             return
 
         if self.watering_in_flight():
@@ -262,12 +270,39 @@ class AppContext:
         soil_pct = self.config.soil_raw_to_pct(snap.get("soil_raw", -1))
         self.current_weather = self.weather_svc.get()
         obs = self.vision.fresh(now) if self.vision else None
+        # Track how long soil has been the thing holding watering back, so a
+        # probe that never comes down can't block forever.
+        blocking = (soil_pct is not None
+                    and soil_pct >= self.config.soil_skip_above_pct)
+        if blocking:
+            self._soil_block_since = self._soil_block_since or now
+        else:
+            self._soil_block_since = None
+        block_h = ((now - self._soil_block_since).total_seconds() / 3600.0
+                   if self._soil_block_since else 0.0)
         self.current_plan = compute_plan(
             self.config, now, soil_pct, self.current_weather,
             self.store.last_watering_end(),
             vision=obs,
             vision_wet_hours=self.vision.wet_hours(now) if self.vision else 0.0,
+            soil_expected=self.config.soil_enabled,
+            soil_block_hours=block_h,
         )
+
+    def sensors_ready(self) -> bool:
+        """Has enough arrived to decide anything?
+
+        Straight after a restart the hub knows nothing: no telemetry, no
+        soil, no weather. Acting then means acting on absence, which is how
+        a saturated garden got watered because a fitted probe had not
+        reported yet. Wait for the sensors to speak first.
+        """
+        snap = self.hardware.snapshot()
+        if snap.get("mcu_seen_seconds_ago") is None:
+            return False
+        if self.config.soil_enabled and snap.get("soil_raw", -1) < 0:
+            return False
+        return True
 
     def preslot_check_due(self, now: datetime) -> bool:
         """One extra look shortly before a watering is due.
@@ -369,28 +404,57 @@ def main():
 
     last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0,
             "locate": time.time(), "leds": 0.0, "vision": 0.0, "due": 0.0}
-    heartbeat = {"tick": time.time(), "warned": False}
+    # ---- the scheduler, and how it recovers from itself ---------------------
+    #
+    # The work runs on a worker thread rather than on App.run's own loop, and
+    # App.run's loop supervises it. If a tick wedges on something with no
+    # deadline, Python cannot kill that thread, but it can be abandoned and
+    # replaced, which is the difference between a hub that comes back by
+    # itself and one that looks alive for eighteen hours while deciding
+    # nothing. Each hang leaks one parked thread; that is a cheap price.
+    heartbeat = {"tick": time.time(), "warned": False, "restarts": 0}
+    STALL_S = 120
 
-    def watchdog():
-        """Say something when the scheduler stops ticking.
+    def scheduler(token: dict):
+        last_fault = [""]
+        while not token["retired"]:
+            try:
+                tick()
+                heartbeat["tick"] = time.time()
+                last_fault[0] = ""
+            except Exception as e:
+                # A tick that fails usually fails every second; say it once
+                # per distinct fault rather than a thousand times an hour.
+                fault = repr(e)
+                if fault != last_fault[0]:
+                    last_fault[0] = fault
+                    ctx.store.log("SYSTEM", f"Scheduler tick failed: {fault}",
+                                  is_error=True)
+            time.sleep(1)
 
-        A wedged tick is silent by nature: the web server keeps answering
-        and the MCU keeps sending telemetry, so everything looks alive while
-        nothing is being decided. This is how that becomes visible.
-        """
-        while True:
-            time.sleep(30)
-            stalled = time.time() - heartbeat["tick"]
-            if stalled > 120 and not heartbeat["warned"]:
-                heartbeat["warned"] = True
-                ctx.store.log("SYSTEM",
-                              f"Scheduler has not ticked for {stalled:.0f}s: "
-                              "watering decisions are stalled", is_error=True)
-            elif stalled <= 120 and heartbeat["warned"]:
+    worker = {"retired": False}
+
+    def loop():
+        nonlocal worker
+        time.sleep(5)
+        stalled = time.time() - heartbeat["tick"]
+        if stalled <= STALL_S:
+            if heartbeat["warned"]:
                 heartbeat["warned"] = False
                 ctx.store.log("SYSTEM", "Scheduler is ticking again")
+            return
 
-    threading.Thread(target=watchdog, name="tick-watchdog", daemon=True).start()
+        heartbeat["warned"] = True
+        heartbeat["restarts"] += 1
+        ctx.store.log("SYSTEM",
+                      f"Scheduler stalled for {stalled:.0f}s, starting a "
+                      f"replacement (restart #{heartbeat['restarts']})",
+                      is_error=True)
+        worker["retired"] = True     # the old one stops if it ever returns
+        worker = {"retired": False}
+        heartbeat["tick"] = time.time()
+        threading.Thread(target=scheduler, args=(worker,),
+                         name="scheduler", daemon=True).start()
     led_state = {"mode": -1, "healthy": None}
 
     def service_leds():
@@ -416,18 +480,6 @@ def main():
                 Leds.set_led1_color(0, 1, 0) if healthy else Leds.set_led1_color(1, 0, 0)
             except Exception:
                 pass
-
-    def loop():
-        # Belt and braces: nothing in a single tick may kill the scheduler.
-        # A hub that exits stops deciding, stops serving the app, and leaves
-        # the garden to the MCU's 14-hour failsafe — far worse than skipping
-        # one second of work.
-        try:
-            tick()
-            heartbeat["tick"] = time.time()
-        except Exception as e:
-            ctx.store.log("SYSTEM", f"Scheduler tick failed: {e!r}", is_error=True)
-        time.sleep(1)
 
     def tick():
         nonlocal located, failsafe_set
@@ -514,6 +566,12 @@ def main():
                 pct = ctx.config.soil_raw_to_pct(snap["soil_raw"])
                 if pct is not None:
                     ts.write_sample("soil_pct", pct)
+
+    # Started here, not where `scheduler` is defined: `tick` is a closure
+    # defined below, and launching the thread before that binding exists
+    # raised NameError once a second with nothing scheduling anything.
+    threading.Thread(target=scheduler, args=(worker,),
+                     name="scheduler", daemon=True).start()
 
     App.run(user_loop=loop)
 

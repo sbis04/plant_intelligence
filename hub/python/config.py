@@ -89,6 +89,9 @@ class Config:
     soil_raw_dry: int = 850              # ADC raw in dry air  (calibrate!)
     soil_raw_wet: int = 400              # ADC raw in water    (calibrate!)
     soil_skip_above_pct: float = 60.0    # wet enough → postpone
+    # A probe stuck above the skip threshold would starve the garden
+    # silently. After this long blocking without a break, water anyway.
+    soil_max_block_hours: float = 48.0
     soil_water_below_pct: float = 30.0   # dry enough → water regardless of clock
 
     # --- garden camera (Tapo RTSP; set via POST /api/camera/config) ---------------

@@ -270,6 +270,7 @@ def compute_plan(
     vision_wet_hours: float = 0.0,
     soil_expected: bool = False,        # a probe is fitted, reading or not
     soil_block_hours: float = 0.0,      # how long soil has been blocking
+    soil_dry_minutes: float = 0.0,      # how long soil has read dry
 ) -> Plan:
     why = Why()
     interval_h = cfg.base_interval_h
@@ -341,10 +342,16 @@ def compute_plan(
             soil_block = True
             why.soil = f"Soil: wet ({soil_pct:.0f}%), postponing"
         elif soil_pct <= cfg.soil_water_below_pct:
-            urgent = True
-            deficit = (cfg.soil_water_below_pct - soil_pct) / max(cfg.soil_water_below_pct, 1)
-            duration *= 1.0 + 0.5 * deficit
-            why.soil = f"Soil: dry ({soil_pct:.0f}%)"
+            if soil_dry_minutes >= cfg.soil_dry_persist_min:
+                urgent = True
+                deficit = ((cfg.soil_water_below_pct - soil_pct)
+                           / max(cfg.soil_water_below_pct, 1))
+                duration *= 1.0 + 0.5 * deficit
+                why.soil = (f"Soil: dry ({soil_pct:.0f}%) for "
+                            f"{soil_dry_minutes:.0f} min")
+            else:
+                why.soil = (f"Soil: reading dry ({soil_pct:.0f}%), waiting to "
+                            "see if it holds")
         else:
             why.soil = f"Soil: {soil_pct:.0f}%"
 

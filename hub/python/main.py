@@ -63,6 +63,7 @@ class AppContext:
         self._last_command_at = None       # when we last told the MCU to water
         self._warmup_logged = False        # said "waiting for sensors" once
         self._soil_block_since = None      # when soil last started blocking
+        self._soil_dry_since = None        # when soil first read below the trigger
 
         self.hardware.on_event(self._on_mcu_event)
 
@@ -280,6 +281,11 @@ class AppContext:
             self._soil_block_since = None
         block_h = ((now - self._soil_block_since).total_seconds() / 3600.0
                    if self._soil_block_since else 0.0)
+        drying = (soil_pct is not None
+                  and soil_pct <= self.config.soil_water_below_pct)
+        self._soil_dry_since = (self._soil_dry_since or now) if drying else None
+        dry_min = ((now - self._soil_dry_since).total_seconds() / 60.0
+                   if self._soil_dry_since else 0.0)
         self.current_plan = compute_plan(
             self.config, now, soil_pct, self.current_weather,
             self.store.last_watering_end(),
@@ -287,6 +293,7 @@ class AppContext:
             vision_wet_hours=self.vision.wet_hours(now) if self.vision else 0.0,
             soil_expected=self.config.soil_enabled,
             soil_block_hours=block_h,
+            soil_dry_minutes=dry_min,
         )
 
     def sensors_ready(self) -> bool:

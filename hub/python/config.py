@@ -93,6 +93,10 @@ class Config:
     # silently. After this long blocking without a break, water anyway.
     soil_max_block_hours: float = 48.0
     soil_water_below_pct: float = 30.0   # dry enough → water regardless of clock
+    # The probe drifts with temperature: it reads driest on a hot afternoon
+    # whether or not the soil changed. A dip below the trigger has to hold
+    # this long before it counts, so drift alone cannot start a watering.
+    soil_dry_persist_min: int = 45
 
     # --- garden camera (Tapo RTSP; set via POST /api/camera/config) ---------------
     # Credentials live in hub/data/config.json on the board — gitignored,

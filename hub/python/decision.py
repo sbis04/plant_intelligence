@@ -292,6 +292,7 @@ def compute_plan(
     # Everything the forecast has to say lands on ONE line. Three separate
     # bullets all meaning "it might rain" was most of the old confusion.
     rain_expected = False
+    rain_factor = 1.0
     bits = []
     if weather is not None:
         t = weather.temp_max_next12h
@@ -309,14 +310,17 @@ def compute_plan(
                 duration *= 0.8
                 bits.append(f"cool ({t:.0f}°C max), watering less often")
 
+        # Held aside rather than applied here: the camera gets to contradict
+        # the forecast a few lines down, and a rain that the roof shows no
+        # sign of should not still be stretching the cadence.
         p = weather.precip_prob_max_next12h
         if p is not None and p >= cfg.rain_skip_probability:
-            interval_h *= 2.0
+            rain_factor *= 2.0
             duration *= 0.7
             rain_expected = True
             bits.append(f"rain {p:.0f}% likely in the next 12 h")
         if weather.is_raining_now:
-            interval_h *= 2.0
+            rain_factor *= 2.0
             rain_expected = True
             bits.append("reported raining now")
         if bits:
@@ -332,6 +336,11 @@ def compute_plan(
             cfg, vision, rain_expected, vision_wet_hours, why,
             raining_reported=bool(weather is not None and weather.is_raining_now))
         skip = verdict or skip
+
+    # Only stretch the cadence for rain the camera hasn't refuted. Without
+    # this a dry roof under a wrong forecast still waited 36 h instead of 12.
+    if rain_expected:
+        interval_h *= rain_factor
 
     # ---- soil overrides the calendar when available ---------------------------
     urgent = False

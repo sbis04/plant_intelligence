@@ -36,16 +36,18 @@ class Config:
     # where the interval stretches/shrinks with weather (and soil, once the
     # probe is installed). base_interval_h = 12 reproduces the old twice-a-day
     # rhythm in neutral weather.
-    base_interval_h: float = 12.0
+    base_interval_h: float = 10.0
     min_interval_h: float = 6.0
-    max_interval_h: float = 36.0
+    # Rain can double this twice over; the cap is what stops a wrong
+    # forecast turning into a day and a half without water.
+    max_interval_h: float = 24.0
     # Watering is only started inside this local-time window.
     window_start: str = "05:30"
     window_end: str = "20:00"
 
     # --- duration --------------------------------------------------------------
     base_duration_s: int = 300          # the old fixed 5 minutes
-    min_duration_s: int = 60
+    min_duration_s: int = 300           # never a token splash: 5 min floor
     max_duration_s: int = 600           # MCU enforces its own hard cap too
 
     # --- weather response ------------------------------------------------------

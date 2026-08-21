@@ -21,7 +21,7 @@
  *   notified (pushed to Python):
  *     on_temperature(float °C)   every TELEMETRY_MS
  *     on_humidity(float %)       every TELEMETRY_MS
- *     on_soil(int raw ADC)       every TELEMETRY_MS (-1 until first valid read)
+ *     on_soil(int raw ADC)       every TELEMETRY_MS (sampled every SOIL_PERIOD_MS)
  *     on_state(int)              watering state machine state
  *     on_seconds_left(int)       remaining watering time, 0 when idle
  *     on_event(int)              event codes below
@@ -70,7 +70,14 @@ const float FAN_OFF_TEMP = 36.5;
 
 const unsigned long TELEMETRY_MS   = 5000;
 const unsigned long DHT_PERIOD_MS  = 10000; // DHT11 max ~0.5 Hz; read every 10 s
-const unsigned long SOIL_RAIL_WARMUP_MS = 150; // capacitive oscillator settle time
+// The probe is only powered while it is being read, which is what keeps
+// its electrodes from corroding. 150 ms turned out to be optimistic: these
+// boards low-pass the oscillator into a DC level, so the output is still
+// climbing toward its final value that early and reads wetter than the soil
+// is. A full second settles it. Sampling every 30 s instead of every 5 s
+// keeps the electrodes powered the same ~3% of the time as before.
+const unsigned long SOIL_PERIOD_MS      = 30000;
+const unsigned long SOIL_RAIL_WARMUP_MS = 1000;
 
 // ---------------------------------------------------------------- state
 enum WaterState { W_IDLE = 0, W_VALVE_OPENING = 1, W_PUMPING = 2, W_CLOSING = 3 };
@@ -96,6 +103,7 @@ bool  fanOn = false;
 unsigned long lastTelemetryMs = 0, lastDhtMs = 0;
 bool soilRailOn = false;
 unsigned long soilRailOnMs = 0;
+unsigned long lastSoilSampleMs = 0;
 
 // ---------------------------------------------------------------- LED matrix
 // The 8x13 grid is the board's face: a sprout grows at boot, rain falls
@@ -258,15 +266,17 @@ bool readDHT11(float &temp, float &hum) {
 }
 
 int readSoilMedian() {
-  int v[5];
-  for (int i = 0; i < 5; i++) { v[i] = analogRead(PIN_SOIL); delay(2); }
-  // insertion sort, take middle
-  for (int i = 1; i < 5; i++) {
+  // Nine samples spread over ~45 ms: the median throws out mains hum and
+  // the odd ADC outlier without caring how they are distributed.
+  const int N = 9;
+  int v[N];
+  for (int i = 0; i < N; i++) { v[i] = analogRead(PIN_SOIL); delay(5); }
+  for (int i = 1; i < N; i++) {          // insertion sort, take the middle
     int k = v[i], j = i - 1;
     while (j >= 0 && v[j] > k) { v[j + 1] = v[j]; j--; }
     v[j + 1] = k;
   }
-  return v[2];
+  return v[N / 2];
 }
 
 // ---------------------------------------------------------------- watering
@@ -428,21 +438,25 @@ void loop() {
     }
   }
 
-  // --- soil: two-phase read with switched rail ---------------------------
-  if (!soilRailOn && now - lastTelemetryMs >= TELEMETRY_MS - SOIL_RAIL_WARMUP_MS) {
-    digitalWrite(PIN_SOIL_RAIL, HIGH);          // energize, let oscillator settle
+  // --- soil: energise, let it settle, then sample ------------------------
+  // Sampling is on its own clock now rather than riding the telemetry tick,
+  // so the settle time can be as long as the sensor needs without powering
+  // the electrodes any longer overall.
+  if (!soilRailOn && now - lastSoilSampleMs >= SOIL_PERIOD_MS) {
+    digitalWrite(PIN_SOIL_RAIL, HIGH);
     soilRailOn = true;
     soilRailOnMs = now;
+  }
+  if (soilRailOn && now - soilRailOnMs >= SOIL_RAIL_WARMUP_MS) {
+    lastSoilRaw = readSoilMedian();
+    digitalWrite(PIN_SOIL_RAIL, LOW);
+    soilRailOn = false;
+    lastSoilSampleMs = now;
   }
 
   // --- telemetry ----------------------------------------------------------
   if (now - lastTelemetryMs >= TELEMETRY_MS) {
     lastTelemetryMs = now;
-    if (soilRailOn && now - soilRailOnMs >= SOIL_RAIL_WARMUP_MS) {
-      lastSoilRaw = readSoilMedian();
-    }
-    digitalWrite(PIN_SOIL_RAIL, LOW);
-    soilRailOn = false;
 
     if (!isnan(lastTemp)) Bridge.notify("on_temperature", lastTemp);
     if (!isnan(lastHum))  Bridge.notify("on_humidity",  lastHum);

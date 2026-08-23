@@ -22,3 +22,4 @@ mobile/ios/**/DerivedData/
 mobile/ios/build/
 mobile/ios/*.xcodeproj
 mobile/ios/.asc/
+__pycache__/

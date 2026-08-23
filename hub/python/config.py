@@ -90,11 +90,11 @@ class Config:
     soil_enabled: bool = False
     soil_raw_dry: int = 340              # ADC raw in dry soil (calibrate!)
     soil_raw_wet: int = 400              # ADC raw in water    (calibrate!)
-    soil_skip_above_pct: float = 60.0    # wet enough → postpone
+    soil_skip_above_pct: float = 75.0    # wet enough → postpone
     # A probe stuck above the skip threshold would starve the garden
     # silently. After this long blocking without a break, water anyway.
     soil_max_block_hours: float = 48.0
-    soil_water_below_pct: float = 30.0   # dry enough → water regardless of clock
+    soil_water_below_pct: float = 60.0   # dry enough → water regardless of clock
     # The probe drifts with temperature: it reads driest on a hot afternoon
     # whether or not the soil changed. A dip below the trigger has to hold
     # this long before it counts, so drift alone cannot start a watering.

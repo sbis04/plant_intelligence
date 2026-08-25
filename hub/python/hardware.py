@@ -43,6 +43,10 @@ class Hardware:
         self._last_seen: float = 0.0
         self._rpc_failures: int = 0
         self._last_rpc_error: str = ""
+        # When the outbound link first broke. Telemetry keeps arriving while
+        # commands silently fail, so "MCU seen 2 s ago" looks healthy right
+        # up until the dead-man failsafe starts watering by itself.
+        self._rpc_fail_since: float = 0.0
         self._event_listeners: list[Callable[[str, bool], None]] = []
 
         Bridge.provide("on_temperature", self._on_temperature)
@@ -108,11 +112,14 @@ class Hardware:
             with self._lock:
                 self._rpc_failures = 0
                 self._last_rpc_error = ""
+                self._rpc_fail_since = 0.0
             return True
         except Exception as e:
             with self._lock:
                 self._rpc_failures += 1
                 self._last_rpc_error = f"{method}: {e}"
+                if not self._rpc_fail_since:
+                    self._rpc_fail_since = time.time()
             return False
 
     def start_watering(self, duration_s: int) -> bool:
@@ -137,6 +144,11 @@ class Hardware:
         with self._lock:
             return self._rpc_failures, self._last_rpc_error
 
+    def rpc_down_seconds(self) -> float:
+        """How long commands to the MCU have been failing. 0 when healthy."""
+        with self._lock:
+            return time.time() - self._rpc_fail_since if self._rpc_fail_since else 0.0
+
     # ---- accessors --------------------------------------------------------------
     def on_event(self, listener: Callable[[str, str, bool], None]):
         """listener(machine_name, human_label, is_error)"""
@@ -155,6 +167,9 @@ class Hardware:
                 "mcu_seen_seconds_ago": round(time.time() - self._last_seen, 1)
                 if self._last_seen else None,
                 "mcu_rpc_failures": self._rpc_failures,
+                # Telemetry arriving is not the same as being able to command
+                # the board; the dashboard needs to show both directions.
+                "mcu_commands_ok": self._rpc_fail_since == 0.0,
             }
 
     def is_watering(self) -> bool:

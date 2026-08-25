@@ -301,3 +301,5 @@ td.err { color: var(--err); }
 #log-full td { padding: 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 #log-full td.time { white-space: nowrap; padding-right: 14px; }
 #log-full td.trigger { white-space: nowrap; padding-left: 14px; }
+
+.detail.err { color: var(--err); font-weight: 600; }

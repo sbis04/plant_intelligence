@@ -144,6 +144,16 @@ class AppContext:
                 self.store.log("SYSTEM",
                                "Holding off until the sensors report in")
             return
+        if self._warmup_logged:
+            # The sensors have just started reporting. The current plan was
+            # formed while they were silent — with no soil term at all — so
+            # decide again on the full picture rather than executing a plan
+            # made in ignorance.
+            self._warmup_logged = False
+            self.recompute_plan()
+            plan = self.current_plan
+            if not plan or not plan.water_now:
+                return
 
         if self.watering_in_flight():
             return
@@ -410,7 +420,9 @@ def main():
     ctx.recompute_plan()
 
     last = {"ping": 0.0, "telemetry": 0.0, "samples": 0.0, "plan": 0.0,
-            "locate": time.time(), "leds": 0.0, "vision": 0.0, "due": 0.0}
+            "locate": time.time(), "leds": 0.0, "vision": 0.0, "due": 0.0,
+            "mcu_alarm": 0.0}
+    alarm = {"pushed": False}
     # ---- the scheduler, and how it recovers from itself ---------------------
     #
     # The work runs on a worker thread rather than on App.run's own loop, and
@@ -499,12 +511,33 @@ def main():
                     ctx.config.failsafe_silence_h)
             if not ctx.hardware.ping():
                 fails, err = ctx.hardware.rpc_health()
-                # One missed beat is a hiccup; a run of them is worth saying
-                # out loud, once, rather than every 30 s forever.
-                if fails in (3, 30):
+                down = ctx.hardware.rpc_down_seconds()
+                # This used to log at exactly 3 and 30 failures and then go
+                # quiet. It once failed ten thousand times over two days in
+                # total silence while the MCU watered on its own failsafe,
+                # so now it keeps saying so, and tells the phone once.
+                if fails == 3 or (down > 300 and time.time() - last["mcu_alarm"] > 900):
+                    last["mcu_alarm"] = time.time()
                     ctx.store.log("SYSTEM",
-                                  f"MCU not answering ({fails} heartbeats missed) — {err}",
+                                  f"Cannot command the MCU: {fails} failures over "
+                                  f"{down/60:.0f} min. Telemetry still arriving, but "
+                                  f"watering commands are not landing — {err}",
                                   is_error=True)
+                    if down > 300 and ctx.push and not alarm["pushed"]:
+                        alarm["pushed"] = True
+                        try:
+                            ctx.push.notify(
+                                "Hub cannot reach the controller",
+                                "Sensor data is still arriving but watering "
+                                "commands are not. The board's own failsafe "
+                                "will water if this continues.",
+                                interruption="time-sensitive")
+                        except Exception:
+                            pass
+            elif alarm["pushed"] or last["mcu_alarm"]:
+                alarm["pushed"] = False
+                last["mcu_alarm"] = 0.0
+                ctx.store.log("SYSTEM", "MCU is accepting commands again")
 
         if now - last["leds"] >= 2:
             last["leds"] = now

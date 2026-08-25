@@ -73,8 +73,14 @@ function render(data) {
   $("wstate").textContent =
     state + (left > 0 ? ` ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "");
   $("wstate").classList.toggle("active", s.watering_state === "watering");
-  $("mcu-link").textContent =
-    s.mcu_seen_seconds_ago != null ? `mcu ${s.mcu_seen_seconds_ago}s ago` : "mcu –";
+  // Telemetry arriving says nothing about whether we can command the board.
+  // Both directions have to be visible, or a one-way break looks healthy.
+  const cmdsOk = s.mcu_commands_ok !== false;
+  $("mcu-link").textContent = s.mcu_seen_seconds_ago != null
+    ? (cmdsOk ? `mcu ${s.mcu_seen_seconds_ago}s ago`
+              : `mcu ${s.mcu_seen_seconds_ago}s ago · NOT ACCEPTING COMMANDS`)
+    : "mcu –";
+  $("mcu-link").classList.toggle("err", !cmdsOk);
 
   // plan card
   const plan = data.plan;

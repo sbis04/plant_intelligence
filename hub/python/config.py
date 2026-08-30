@@ -89,7 +89,7 @@ class Config:
     # --- soil probe (disabled until installed & calibrated) ---------------------
     soil_enabled: bool = False
     soil_raw_dry: int = 340              # ADC raw in dry soil (calibrate!)
-    soil_raw_wet: int = 400              # ADC raw in water    (calibrate!)
+    soil_raw_wet: int = 185              # ADC raw in saturated soil
     soil_skip_above_pct: float = 75.0    # wet enough → postpone
     # A probe stuck above the skip threshold would starve the garden
     # silently. After this long blocking without a break, water anyway.

@@ -170,6 +170,11 @@ class Hardware:
                 # Telemetry arriving is not the same as being able to command
                 # the board; the dashboard needs to show both directions.
                 "mcu_commands_ok": self._rpc_fail_since == 0.0,
+                # Seconds the outbound link has been down, so the host-side
+                # watchdog can decide without keeping state of its own.
+                "mcu_commands_down_s": round(
+                    time.time() - self._rpc_fail_since, 1)
+                if self._rpc_fail_since else 0.0,
             }
 
     def is_watering(self) -> bool:

@@ -14,6 +14,7 @@ The MCU waters on its own conservative timer if this process dies — that
 failsafe is tested by killing this process, not by trusting this comment.
 """
 
+import os
 import socket
 import threading
 import time
@@ -407,6 +408,17 @@ def main():
     api.register(ui, ctx)
 
     ctx.store.log("SYSTEM", "Plant Intelligence hub started")
+    # The watchdog restarts us from outside the container, so it leaves a
+    # note behind rather than trying to write to the database itself.
+    _flag = os.path.expanduser("~/.mcu-watchdog-restarted")
+    if os.path.exists(_flag):
+        try:
+            os.remove(_flag)
+        except OSError:
+            pass
+        ctx.store.log("SYSTEM",
+                      "Restarted automatically: the MCU had stopped accepting "
+                      "commands", is_error=True)
     gone = ctx.store.push_token_prune()
     if gone:
         ctx.store.log("SYSTEM", f"Forgot {gone} phone token(s) that stopped checking in")

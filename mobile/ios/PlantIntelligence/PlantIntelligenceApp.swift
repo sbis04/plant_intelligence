@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import GoogleSignIn
 
 /// The app lives in portrait; only the full-screen camera viewer is allowed
 /// to rotate, by flipping this gate while it's presented.
@@ -84,6 +85,17 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .onOpenURL { url in
+            GIDSignIn.sharedInstance.handle(url)
+        }
+        .alert("Couldn’t complete that", isPresented: Binding(
+            get: { app.userMessage != nil },
+            set: { if !$0 { app.userMessage = nil } }
+        )) {
+            Button("OK") { app.userMessage = nil }
+        } message: {
+            Text(app.userMessage ?? "Please try again.")
+        }
         .onChange(of: selection) {
             if suppressNextTabHaptic {
                 suppressNextTabHaptic = false

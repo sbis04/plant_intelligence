@@ -6,5 +6,9 @@
 	<array>
 		<string>group.com.souvikbiswas.plants</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>P2FZ58Y7VW.com.souvikbiswas.plants.shared</string>
+	</array>
 </dict>
 </plist>

@@ -65,7 +65,10 @@ struct CameraCard: View {
     }
 
     private func refresh() async {
-        guard let client = app.client else { return }
+        guard app.link == .live, let client = app.client else {
+            available = false
+            return
+        }
         var req = URLRequest(url: client.baseURL.appending(path: "/api/camera/snapshot"))
         req.timeoutInterval = 15
         req.cachePolicy = .reloadIgnoringLocalCacheData

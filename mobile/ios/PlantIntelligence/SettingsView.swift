@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var pushResult: String?
     @State private var notificationsAllowed = false
     @State private var liveActivitiesOn = false
+    @State private var remotePairingResult: String?
+    @State private var remotePairingBusy = false
 
     var body: some View {
         @Bindable var app = app
@@ -55,6 +57,11 @@ struct SettingsView: View {
                     }
 
                     PanelCard(title: "Location") {
+                        if app.link != .live {
+                            Label("Changes require the home Wi-Fi.", systemImage: "wifi")
+                                .font(.caption)
+                                .foregroundStyle(Theme.warn)
+                        }
                         if let loc = app.status?.location {
                             kv("Current", loc.name?.isEmpty == false ? loc.name! : "unknown")
                             kv("Source", sourceLabel(loc.source))
@@ -84,6 +91,7 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.glass)
                             .disabled(place.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .disabled(app.link != .live)
                             if let locationResult {
                                 Text(locationResult)
                                     .font(.caption)
@@ -97,6 +105,11 @@ struct SettingsView: View {
                     }
 
                     PanelCard(title: "Assistant") {
+                        if app.link != .live {
+                            Label("Configuration requires the home Wi-Fi.", systemImage: "wifi")
+                                .font(.caption)
+                                .foregroundStyle(Theme.warn)
+                        }
                         let info = app.status?.assistant
                         kv("Mode", info?.cloudConfigured == true
                             ? "cloud when online, on-device offline"
@@ -128,6 +141,7 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.glass)
                             .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .disabled(app.link != .live)
                             if app.status?.assistant?.cloudConfigured == true {
                                 Button("Remove") {
                                     Haptics.impact(.medium, intensity: 0.8)
@@ -146,6 +160,7 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.glass)
                                 .tint(Theme.err)
+                                .disabled(app.link != .live)
                             }
                             if let assistantResult {
                                 Text(assistantResult)
@@ -210,15 +225,46 @@ struct SettingsView: View {
                                : "\(Int(age / 60)) min ago")
                         }
                         if app.isPairedForRemote {
+                            if let account = app.remoteAccountName, !account.isEmpty {
+                                kv("Account", account)
+                            }
                             Button("Forget remote access") {
                                 app.forgetRemoteAccess()
                                 Haptics.notification(.success)
                             }
                             .buttonStyle(.glass)
+                        } else {
+                            Button {
+                                Haptics.impact(.light)
+                                remotePairingBusy = true
+                                Task {
+                                    let error = await app.pairRemoteAccess()
+                                    remotePairingBusy = false
+                                    if let error {
+                                        remotePairingResult = error
+                                        Haptics.notification(.error)
+                                    } else {
+                                        remotePairingResult = "Paired ✓"
+                                        Haptics.notification(.success)
+                                    }
+                                }
+                            } label: {
+                                Label(remotePairingBusy ? "Signing in…" : "Sign in with Google",
+                                      systemImage: "person.crop.circle.badge.checkmark")
+                            }
+                            .buttonStyle(.glassProminent)
+                            .tint(Theme.accent)
+                            .disabled(remotePairingBusy)
+                            if let remotePairingResult {
+                                Text(remotePairingResult)
+                                    .font(.caption)
+                                    .foregroundStyle(remotePairingResult.hasSuffix("✓")
+                                                     ? Theme.accent : Theme.err)
+                            }
                         }
                         Text(app.isPairedForRemote
                              ? "When the hub isn't reachable on Wi-Fi, the app reads the garden from the cloud and queues watering commands there. The hub picks them up within about ten seconds. Notifications arrive either way."
-                             : "Open the app once on your home Wi-Fi and it will pair itself for use away from home. Nothing to type in.")
+                             : "Sign in with an approved Google account. Firestore permits access only when that account’s Firebase UID is on the garden allowlist.")
                             .font(.caption)
                             .foregroundStyle(Theme.textMuted)
                     }

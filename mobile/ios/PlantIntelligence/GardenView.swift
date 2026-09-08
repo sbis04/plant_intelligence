@@ -163,6 +163,9 @@ struct GardenView: View {
     }
 
     private var heroSubtitle: String {
+        if let age = app.remoteAgeSeconds, age > RemoteFreshness.maximumAge {
+            return remoteSubtitle
+        }
         guard app.isConnected else { return "check the hub connection in Settings" }
         if app.link == .remote, s?.isWatering != true {
             return remoteSubtitle
@@ -364,7 +367,9 @@ struct GardenView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.leading, 12)
-                    TextField("Ask the garden…", text: $draft, axis: .vertical)
+                    TextField(app.assistantAvailable
+                              ? "Ask the garden…" : "Available on home Wi-Fi",
+                              text: $draft, axis: .vertical)
                         .lineLimit(1...4)
                         .focused($inputFocused)
                         .padding(.leading, 4)
@@ -388,7 +393,8 @@ struct GardenView: View {
                             .foregroundStyle(Theme.accent)
                     }
                     .buttonStyle(.plain)
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!app.assistantAvailable
+                              || draft.trimmingCharacters(in: .whitespaces).isEmpty)
                     .padding(.trailing, 8)
                 }
                 }
@@ -397,6 +403,8 @@ struct GardenView: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 14)
+        .disabled(!app.assistantAvailable)
+        .opacity(app.assistantAvailable ? 1 : 0.58)
         .onChange(of: photoItem) {
             guard let item = photoItem else { return }
             photoItem = nil
@@ -412,7 +420,7 @@ struct GardenView: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard app.assistantAvailable, !text.isEmpty else { return }
         Haptics.impact(.soft)
         draft = ""
         inputFocused = false

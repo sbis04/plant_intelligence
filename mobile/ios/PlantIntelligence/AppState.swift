@@ -25,6 +25,7 @@ final class AppState {
 
     /// Reachable by either path. Most of the UI only cares about this.
     var isConnected: Bool { link == .live || link == .remote }
+    var assistantAvailable: Bool { link == .live }
 
     /// How stale the cloud mirror is, when that is the path being used.
     var remoteAgeSeconds: TimeInterval?
@@ -33,6 +34,8 @@ final class AppState {
     var history: [WateringEvent] = []
     var logs: [LogEntry] = []
     var lastError: String?
+    var activityError: String?
+    var userMessage: String?
 
     // Assistant conversation. Threads live on the hub; `messages` mirrors
     // the currently open one. currentThreadId 0 = the hub creates a thread
@@ -70,6 +73,10 @@ final class AppState {
         }
         SharedGardenStore.hubAddress = hubAddress
         cloud = RemoteAccess.load().map(CloudClient.init(credentials:))
+        WatchCredentialBridge.shared.activate()
+        if let credentials = RemoteAccess.load() {
+            WatchCredentialBridge.shared.sync(credentials)
+        }
     }
 
     var client: HubClient? { HubClient(address: hubAddress) }
@@ -80,6 +87,10 @@ final class AppState {
     @ObservationIgnored private var cloud: CloudClient?
 
     var isPairedForRemote: Bool { cloud != nil }
+    var remoteAccountName: String? {
+        let credentials = RemoteAccess.load()
+        return credentials?.displayName ?? credentials?.email
+    }
 
     // MARK: - Polling
 
@@ -117,7 +128,7 @@ final class AppState {
                 lastError = nil
                 cacheForWidgets(latestStatus)
                 reactToWateringState(latestStatus)
-                await pairForRemoteIfNeeded()
+                await flushPendingPushTokens()
                 return
             } catch {
                 // Fall through to the cloud rather than reporting offline.
@@ -126,38 +137,53 @@ final class AppState {
 
         guard let cloud else { link = .offline; return }
         do {
-            let latestStatus = try await cloud.status()
-            status = latestStatus
+            let remote = try await cloud.statusWithAge()
+            status = remote.status
+            remoteAgeSeconds = remote.age
+            guard remote.age <= RemoteFreshness.maximumAge else {
+                link = .offline
+                lastError = "The hub's cloud update is stale."
+                cacheForWidgets(remote.status, isLive: false)
+                return
+            }
             link = .remote
-            remoteAgeSeconds = try? await cloud.stateAge()
             lastError = nil
-            cacheForWidgets(latestStatus)
-            reactToWateringState(latestStatus)
+            cacheForWidgets(remote.status)
+            reactToWateringState(remote.status)
         } catch {
             link = .offline
             lastError = error.localizedDescription
         }
     }
 
-    /// Collect the Firestore credentials from the hub while we can see it.
-    /// Runs at most once per launch and only while on the LAN.
-    @ObservationIgnored private var pairingAttempted = false
-
-    private func pairForRemoteIfNeeded() async {
-        guard cloud == nil, !pairingAttempted, let client else { return }
-        pairingAttempted = true
-        guard let credentials = try? await client.pairRemoteAccess(),
-              credentials.isComplete else { return }
-        RemoteAccess.save(credentials)
-        cloud = CloudClient(credentials: credentials)
+    func pairRemoteAccess() async -> String? {
+        do {
+            guard let configuration = RemoteProjectConfiguration.bundled else {
+                return "Firebase is not configured in this build."
+            }
+            let credentials = try await GoogleRemoteAuth.signIn(configuration: configuration)
+            let candidate = CloudClient(credentials: credentials)
+            _ = try await candidate.statusWithAge()
+            guard RemoteAccess.save(credentials) else {
+                GoogleRemoteAuth.signOut()
+                return "The sign-in succeeded, but the account could not be saved securely."
+            }
+            cloud = candidate
+            WatchCredentialBridge.shared.sync(credentials)
+            return nil
+        } catch {
+            GoogleRemoteAuth.signOut()
+            return error.localizedDescription
+        }
     }
 
     /// Drop the stored credentials — Settings offers this so a device can be
     /// un-paired without reinstalling.
     func forgetRemoteAccess() {
+        GoogleRemoteAuth.signOut()
         RemoteAccess.forget()
         cloud = nil
-        pairingAttempted = false
+        WatchCredentialBridge.shared.clear()
     }
 
     // MARK: - Notifications & live activity
@@ -187,7 +213,7 @@ final class AppState {
                 trigger: history.first?.trigger ?? "scheduled",
                 note: "",
                 location: response.location?.name ?? "Garden",
-                client: client)
+                client: link == .live ? client : nil)
         } else if !watering, LiveActivityManager.hasActive {
             // Covers the ordinary end, and also clears a card orphaned by a
             // crash or a hub-pushed start we never saw finish.
@@ -202,23 +228,44 @@ final class AppState {
     /// Called once at launch and whenever the hub address changes.
     func setUpNotifications() async {
         await NotificationManager.shared.bootstrap()
-        LiveActivityManager.registerPushToStart(with: client)
+        LiveActivityManager.registerPushToStart(with: link == .live ? client : nil)
     }
 
     func registerPushToken(_ token: String) async {
-        guard let client else { return }
-        _ = try? await client.registerPush(token: token, kind: "alert")
+        await PendingPushTokens.shared.submit(
+            value: token, kind: "alert", client: link == .live ? client : nil)
     }
 
-    func refreshActivity() async {
+    private func flushPendingPushTokens() async {
+        guard let client else { return }
+        await PendingPushTokens.shared.flush(with: client)
+    }
+
+    func refreshActivity(reportErrors: Bool = false) async {
         if link == .remote, let cloud {
-            history = (try? await cloud.history()) ?? history
-            logs = (try? await cloud.logs()) ?? logs
+            do {
+                async let remoteHistory = cloud.history()
+                async let remoteLogs = cloud.logs()
+                history = try await remoteHistory
+                logs = try await remoteLogs
+                activityError = nil
+            } catch {
+                activityError = "Couldn’t load cloud activity. Pull to try again."
+                if reportErrors { userMessage = error.localizedDescription }
+            }
             return
         }
         guard let client else { return }
-        history = (try? await client.history()) ?? history
-        logs = (try? await client.logs()) ?? logs
+        do {
+            async let localHistory = client.history()
+            async let localLogs = client.logs()
+            history = try await localHistory
+            logs = try await localLogs
+            activityError = nil
+        } catch {
+            activityError = "Couldn’t load activity from the hub. Pull to try again."
+            if reportErrors { userMessage = error.localizedDescription }
+        }
     }
 
     // MARK: - Actions
@@ -255,18 +302,21 @@ final class AppState {
                 Haptics.notification(.success)
             } catch {
                 lastError = error.localizedDescription
+                userMessage = error.localizedDescription
                 Haptics.notification(.error)
             }
             return
         }
 
         guard let client else {
+            userMessage = "The garden isn’t reachable right now."
             Haptics.notification(.error)
             return
         }
         do {
             let response = try await local(client)
             guard response.accepted != false, response.error == nil else {
+                userMessage = response.error ?? "The hub rejected that command."
                 Haptics.notification(.error)
                 return
             }
@@ -275,13 +325,14 @@ final class AppState {
             WidgetCenter.shared.reloadAllTimelines()
             Haptics.notification(.success)
         } catch {
+            userMessage = error.localizedDescription
             Haptics.notification(.error)
         }
     }
 
-    private func cacheForWidgets(_ response: StatusResponse) {
+    private func cacheForWidgets(_ response: StatusResponse, isLive: Bool = true) {
         let previous = SharedGardenStore.load()
-        let snapshot = GardenSnapshot(response: response)
+        let snapshot = GardenSnapshot(response: response, isLive: isLive)
         SharedGardenStore.save(snapshot)
         let presentationChanged = previous == nil
             || previous?.isLive != snapshot.isLive
@@ -302,6 +353,10 @@ final class AppState {
 
     func ask(_ question: String) async {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard assistantAvailable else {
+            userMessage = "The garden assistant is available on your home Wi-Fi."
+            return
+        }
         guard !q.isEmpty, !assistantBusy, let client else { return }
         // Run in an owned task so a stop button can cancel mid-stream;
         // dropping the connection makes the hub stop generation too.
@@ -371,7 +426,7 @@ final class AppState {
     // MARK: - Threads
 
     func loadThreads() async {
-        guard let client else { return }
+        guard assistantAvailable, let client else { return }
         threads = (try? await client.chatThreads()) ?? threads
     }
 

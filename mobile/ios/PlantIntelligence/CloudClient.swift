@@ -14,17 +14,6 @@ import Foundation
 /// decodes from either source and nothing above this layer has to know which
 /// path the data arrived by.
 actor CloudClient {
-    struct Credentials: Codable, Equatable, Sendable {
-        var projectID: String
-        var apiKey: String
-        var email: String
-        var password: String
-
-        var isComplete: Bool {
-            !projectID.isEmpty && !apiKey.isEmpty && !email.isEmpty && !password.isEmpty
-        }
-    }
-
     enum CloudError: LocalizedError {
         case notConfigured
         case auth(String)
@@ -45,13 +34,14 @@ actor CloudClient {
         }
     }
 
-    private let credentials: Credentials
+    private var credentials: RemoteCredentials
     private var idToken = ""
-    private var refreshToken = ""
+    private var refreshToken: String
     private var tokenExpires = Date.distantPast
 
-    init(credentials: Credentials) {
+    init(credentials: RemoteCredentials) {
         self.credentials = credentials
+        refreshToken = credentials.refreshToken
     }
 
     private var documents: String {
@@ -75,33 +65,8 @@ actor CloudClient {
         if !idToken.isEmpty, Date() < tokenExpires { return idToken }
         guard credentials.isComplete else { throw CloudError.notConfigured }
 
-        if !refreshToken.isEmpty, let refreshed = try? await refresh() {
-            return refreshed
-        }
-
-        var req = URLRequest(url: URL(string:
-            "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
-            + "?key=\(credentials.apiKey)")!)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "email": credentials.email,
-            "password": credentials.password,
-            "returnSecureToken": true,
-        ])
-        let (data, response) = try await session.data(for: req)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let token = body["idToken"] as? String else {
-            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
-                .flatMap { ($0?["error"] as? [String: Any])?["message"] as? String }
-            throw CloudError.auth(message ?? "unknown reason")
-        }
-        idToken = token
-        refreshToken = body["refreshToken"] as? String ?? ""
-        let ttl = Double(body["expiresIn"] as? String ?? "3600") ?? 3600
-        tokenExpires = Date().addingTimeInterval(ttl - 300)
-        return token
+        guard !refreshToken.isEmpty else { throw CloudError.notConfigured }
+        return try await refresh()
     }
 
     private func refresh() async throws -> String {
@@ -121,6 +86,8 @@ actor CloudClient {
         }
         idToken = token
         refreshToken = body["refresh_token"] as? String ?? refreshToken
+        credentials.refreshToken = refreshToken
+        RemoteAccess.save(credentials)
         let ttl = Double(body["expires_in"] as? String ?? "3600") ?? 3600
         tokenExpires = Date().addingTimeInterval(ttl - 300)
         return token
@@ -187,13 +154,23 @@ actor CloudClient {
 
     // MARK: - Reads
 
-    func status() async throws -> StatusResponse {
+    func statusWithAge() async throws -> (status: StatusResponse, age: TimeInterval) {
         let raw = try await send("GET", "\(documents)/device_state/current")
         guard let doc = raw as? [String: Any],
               let fields = doc["fields"] as? [String: Any] else {
             throw CloudError.noDocument
         }
-        return try model(Firestore.decode(fields: fields), as: StatusResponse.self)
+        let decoded = Firestore.decode(fields: fields)
+        guard let updated = decoded["updated_at"] as? String,
+              let date = ISO8601.parse(updated) else {
+            throw CloudError.noDocument
+        }
+        return (try model(decoded, as: StatusResponse.self),
+                max(0, Date().timeIntervalSince(date)))
+    }
+
+    func status() async throws -> StatusResponse {
+        try await statusWithAge().status
     }
 
     /// How long ago the hub last refreshed the mirror. A stale document means
@@ -201,14 +178,7 @@ actor CloudClient {
     /// phone being away — and the app should say so rather than showing
     /// yesterday's reading as if it were current.
     func stateAge() async throws -> TimeInterval {
-        let raw = try await send("GET", "\(documents)/device_state/current")
-        guard let doc = raw as? [String: Any],
-              let fields = doc["fields"] as? [String: Any],
-              let updated = Firestore.decode(fields: fields)["updated_at"] as? String,
-              let date = ISO8601.parse(updated) else {
-            throw CloudError.noDocument
-        }
-        return Date().timeIntervalSince(date)
+        try await statusWithAge().age
     }
 
     func history(limit: Int = 30) async throws -> [WateringEvent] {

@@ -31,7 +31,11 @@ struct AssistantOverlay: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         if app.messages.isEmpty {
-                            emptyState
+                            if app.assistantAvailable {
+                                emptyState
+                            } else {
+                                unavailableState
+                            }
                         }
                         ForEach(app.messages) { msg in
                             bubble(msg)
@@ -103,7 +107,7 @@ struct AssistantOverlay: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.glass)
-            .disabled(app.assistantBusy || app.threads.isEmpty)
+            .disabled(!app.assistantAvailable || app.assistantBusy || app.threads.isEmpty)
             Spacer()
             Button {
                 Haptics.impact(.soft)
@@ -114,7 +118,7 @@ struct AssistantOverlay: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.glass)
-            .disabled(app.assistantBusy || app.messages.isEmpty)
+            .disabled(!app.assistantAvailable || app.assistantBusy || app.messages.isEmpty)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -264,6 +268,23 @@ struct AssistantOverlay: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 60)
+    }
+
+    private var unavailableState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 38))
+                .foregroundStyle(Theme.warn)
+            Text("Assistant needs the home network")
+                .font(.headline)
+            Text("Garden status and watering still work through the cloud. Conversations and camera access connect directly to the hub.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 90)
     }
 
     private func bubble(_ msg: ChatMessage) -> some View {

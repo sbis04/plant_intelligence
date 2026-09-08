@@ -16,8 +16,25 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>FirebaseAPIKey</key>
+	<string>$(FIREBASE_API_KEY)</string>
+	<key>FirebaseProjectID</key>
+	<string>$(FIREBASE_PROJECT_ID)</string>
+	<key>GIDClientID</key>
+	<string>$(GOOGLE_CLIENT_ID)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>

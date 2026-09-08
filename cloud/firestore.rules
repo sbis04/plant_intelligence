@@ -32,17 +32,21 @@ service cloud.firestore {
     //
     // Emails are deliberately not written down — this file is public. The
     // mapping lives in the Firebase console under Authentication.
-    function allowed() {
+    function hub() {
+      return request.auth != null
+             && request.auth.uid == "YL7ia18INyayzddkA5Gw8Q98y242";
+    }
+
+    function appUser() {
       return request.auth != null && request.auth.uid in [
-        "YL7ia18INyayzddkA5Gw8Q98y242",  // the hub, and every app paired to it
         "tzJ43HgxvYdGaXdNNtlF6C8jAQ62",  // owner
         "SqQRDja3POYVcRe4qzpEJDoNQjm2",  // household
-        "ylu3UsV6qUUrn9wl1jrZRCS2Ak72",  // household
-        // The FlutterFlow builder's service account, from the previous app.
-        // It has not signed in since the day it was created. Drop this line
-        // once that app is retired for good.
-        "dK7CvXgAf0VZp6FNl1H3oCorwUI2"
+        "ylu3UsV6qUUrn9wl1jrZRCS2Ak72"   // household
       ];
+    }
+
+    function allowed() {
+      return hub() || appUser();
     }
 
     // Default deny. Anything not matched below is closed.
@@ -57,39 +61,39 @@ service cloud.firestore {
     }
 
     match /user/{document} {
-      allow create, read, write: if request.auth != null
+      allow create, read, write: if appUser()
                                  && request.auth.uid == document;
       allow delete: if false;
     }
 
     // One document per watering, written by the hub once it has finished.
     match /water_history/{document} {
-      allow create: if allowed();
+      allow create: if hub();
       allow read: if allowed();
-      allow write: if allowed();
+      allow update: if hub();
       allow delete: if false;
     }
 
     // Kept for the previous system's override document. The current remote
     // control path is /commands.
     match /override_data/{document} {
-      allow create: if allowed();
+      allow create: if hub();
       allow read: if allowed();
-      allow write: if allowed();
+      allow update: if hub();
       allow delete: if false;
     }
 
     match /system_logs/{document} {
-      allow create: if allowed();
+      allow create: if hub();
       allow read: if allowed();
-      allow write: if allowed();
+      allow update: if hub();
       allow delete: if false;
     }
 
     match /system_health/{document} {
-      allow create: if allowed();
+      allow create: if hub();
       allow read: if allowed();
-      allow write: if allowed();
+      allow update: if hub();
       allow delete: if false;
     }
 
@@ -97,9 +101,9 @@ service cloud.firestore {
     // by the hub every few seconds. This is what the app renders when it
     // cannot reach the LAN.
     match /device_state/{document} {
-      allow create: if allowed();
+      allow create: if hub();
       allow read: if allowed();
-      allow write: if allowed();
+      allow update: if hub();
       allow delete: if false;
     }
 
@@ -107,10 +111,20 @@ service cloud.firestore {
     // the hub is what moves them to done, rejected or expired. Nobody may
     // delete one, so the result stays readable by the sender.
     match /commands/{document} {
-      allow create: if allowed()
-                    && request.resource.data.status == "pending";
+      allow create: if appUser()
+                    && request.resource.data.status == "pending"
+                    && request.resource.data.action in ["water", "stop", "refresh"]
+                    && request.resource.data.requested_at is timestamp
+                    && request.resource.data.source in ["ios", "watchos"]
+                    && (!request.resource.data.keys().hasAny(["duration_s"])
+                        || (request.resource.data.duration_s is int
+                            && request.resource.data.duration_s > 0
+                            && request.resource.data.duration_s <= 900))
+                    && request.resource.data.keys().hasOnly([
+                      "action", "status", "requested_at", "source", "duration_s"
+                    ]);
       allow read: if allowed();
-      allow write: if allowed();
+      allow update: if hub();
       allow delete: if false;
     }
   }

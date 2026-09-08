@@ -38,12 +38,12 @@ enum LiveActivityManager {
 
   /// Hand the hub a push-to-start token so it can raise the card unprompted.
   static func registerPushToStart(with client: HubClient?) {
-    guard let client else { return }
     startTokenTask?.cancel()
     startTokenTask = Task.detached {
       for await data in Activity<WateringAttributes>.pushToStartTokenUpdates {
         let hex = data.map { String(format: "%02x", $0) }.joined()
-        _ = try? await client.registerPush(token: hex, kind: "activity-start")
+        await PendingPushTokens.shared.submit(
+          value: hex, kind: "activity-start", client: client)
       }
     }
     // Adopt a card the hub may have raised while the app was closed.
@@ -155,13 +155,13 @@ enum LiveActivityManager {
   }
 
   private static func observeUpdateToken(id: String, with client: HubClient?) {
-    guard let client else { return }
     tokenTask?.cancel()
     tokenTask = Task.detached {
       guard let activity = find(id) else { return }
       for await data in activity.pushTokenUpdates {
         let hex = data.map { String(format: "%02x", $0) }.joined()
-        _ = try? await client.registerPush(token: hex, kind: "activity-update")
+        await PendingPushTokens.shared.submit(
+          value: hex, kind: "activity-update", client: client)
       }
     }
   }

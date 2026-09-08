@@ -353,32 +353,6 @@ def register(ui, ctx):
         ctx.start_cloud_sync()
         return {"accepted": True}
 
-    async def cloud_pair(request: Request):
-        """Hand the Firestore credentials to an app on the home network.
-
-        This is how a phone gets set up for remote access without anyone
-        typing a password into it: pair once while at home, and the app files
-        the credentials in its Keychain for when it is away.
-
-        Only answered for callers on a private address. That is the same
-        trust boundary the rest of this API already sits behind — anyone on
-        the home Wi-Fi can already water the garden — but these credentials
-        reach further than the LAN does, so the check is explicit rather
-        than assumed.
-        """
-        client = request.client.host if request.client else ""
-        if not _is_private_address(client):
-            return {"error": "pairing is only available on the home network"}
-        if not ctx.config.firebase_project_id:
-            return {"error": "no Firebase project configured on the hub"}
-        ctx.store.log("CLOUD", f"Remote access paired with a device at {client}")
-        return {
-            "project_id": ctx.config.firebase_project_id,
-            "api_key": ctx.config.firebase_api_key,
-            "email": ctx.config.firebase_email,
-            "password": ctx.config.firebase_password,
-        }
-
     def cloud_status():
         """Whether the mirror is actually landing documents, plus how much
         is still queued locally. Both halves matter: a healthy connection
@@ -388,7 +362,6 @@ def register(ui, ctx):
         return {"cloud": st}
 
     ui.expose_api("POST", "/api/cloud/config", cloud_config)
-    ui.expose_api("GET", "/api/cloud/pair", cloud_pair)
     ui.expose_api("GET", "/api/cloud/status", cloud_status)
     ui.expose_api("GET", "/api/system", system)
     ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)

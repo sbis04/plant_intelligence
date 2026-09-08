@@ -21,39 +21,58 @@ private final class WatchGardenModel {
   var snapshot = SharedGardenStore.load() ?? .offline
   var busy = false
 
+  init() {
+    PhoneCredentialReceiver.shared.activate()
+  }
+
   func refresh() async {
     snapshot = await GardenSnapshotService.fetch()
   }
 
   func water() async {
-    await perform { client in try await client.water() }
+    await perform(local: { try await $0.water() }, remote: { try await $0.water() })
   }
 
   func stop() async {
-    await perform { client in try await client.stop() }
+    await perform(local: { try await $0.stop() }, remote: { try await $0.stop() })
   }
 
-  private func perform(_ action: (HubClient) async throws -> SimpleResponse) async {
-    guard !busy, let client = HubClient(address: SharedGardenStore.hubAddress) else {
+  private func perform(
+    local: (HubClient) async throws -> SimpleResponse,
+    remote: (CloudClient) async throws -> String
+  ) async {
+    guard !busy else { return }
+    busy = true
+    defer { busy = false }
+
+    if let client = HubClient(address: SharedGardenStore.hubAddress),
+       (try? await client.status(timeout: 3)) != nil,
+       let response = try? await local(client),
+       response.accepted != false, response.error == nil {
+      snapshot = await GardenSnapshotService.fetch()
+      WidgetCenter.shared.reloadAllTimelines()
+      WKInterfaceDevice.current().play(.success)
+      return
+    }
+
+    guard let credentials = RemoteAccess.load() else {
       WKInterfaceDevice.current().play(.failure)
       return
     }
-    busy = true
     do {
-      let response = try await action(client)
-      guard response.accepted != false, response.error == nil else {
-        WKInterfaceDevice.current().play(.failure)
-        busy = false
-        return
-      }
+      let cloud = CloudClient(credentials: credentials)
+      let state = try await cloud.statusWithAge()
+      guard state.age <= RemoteFreshness.maximumAge else { throw RemoteCommandError.stale }
+      _ = try await remote(cloud)
       snapshot = await GardenSnapshotService.fetch()
       WidgetCenter.shared.reloadAllTimelines()
       WKInterfaceDevice.current().play(.success)
     } catch {
       WKInterfaceDevice.current().play(.failure)
     }
-    busy = false
   }
+
+  private enum RemoteCommandError: Error { case stale }
 }
 
 private struct WatchDashboardView: View {

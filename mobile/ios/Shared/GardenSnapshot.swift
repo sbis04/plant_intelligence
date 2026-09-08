@@ -230,14 +230,27 @@ enum SharedGardenStore {
 
 enum GardenSnapshotService {
   static func fetch() async -> GardenSnapshot {
-    guard let client = HubClient(address: SharedGardenStore.hubAddress) else {
-      return cachedOfflineSnapshot()
-    }
-    do {
-      let snapshot = GardenSnapshot(response: try await client.status())
+    if let client = HubClient(address: SharedGardenStore.hubAddress),
+       let response = try? await client.status(timeout: 3) {
+      let snapshot = GardenSnapshot(response: response)
       SharedGardenStore.save(snapshot)
       return snapshot
-    } catch {
+    }
+
+    if let credentials = RemoteAccess.load() {
+      let cloud = CloudClient(credentials: credentials)
+      do {
+        let remote = try await cloud.statusWithAge()
+        guard remote.age <= RemoteFreshness.maximumAge else {
+          return cachedOfflineSnapshot()
+        }
+        let snapshot = GardenSnapshot(response: remote.status)
+        SharedGardenStore.save(snapshot)
+        return snapshot
+      } catch {
+        return cachedOfflineSnapshot()
+      }
+    } else {
       return cachedOfflineSnapshot()
     }
   }

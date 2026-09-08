@@ -191,6 +191,25 @@ struct WateringEvent: Codable, Identifiable, Hashable {
         case trigger, reason
     }
 
+    private enum LegacyKeys: String, CodingKey {
+        case manualOverride = "manual_override"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        waterStartedAt = try values.decode(String.self, forKey: .waterStartedAt)
+        waterEndedAt = try values.decodeIfPresent(String.self, forKey: .waterEndedAt)
+        reason = try values.decodeIfPresent(String.self, forKey: .reason)
+        if let stored = try values.decodeIfPresent(String.self, forKey: .trigger),
+           !stored.isEmpty {
+            trigger = stored
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            let manual = try legacy.decodeIfPresent(Bool.self, forKey: .manualOverride) ?? false
+            trigger = manual ? "manual" : "scheduled"
+        }
+    }
+
     var id: String { waterStartedAt }
     var startDate: Date? { ISO8601.parse(waterStartedAt) }
     var endDate: Date? { waterEndedAt.flatMap { ISO8601.parse($0) } }

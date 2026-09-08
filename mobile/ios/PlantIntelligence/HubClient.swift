@@ -55,24 +55,6 @@ struct HubClient: Sendable {
         try await get("/api/status", as: StatusResponse.self, timeout: timeout)
     }
 
-    /// Collect the Firestore credentials for remote access. The hub only
-    /// answers this for callers on the local network.
-    func pairRemoteAccess() async throws -> CloudClient.Credentials {
-        struct Pairing: Decodable {
-            var project_id: String?
-            var api_key: String?
-            var email: String?
-            var password: String?
-            var error: String?
-        }
-        let response = try await get("/api/cloud/pair", as: Pairing.self)
-        return CloudClient.Credentials(
-            projectID: response.project_id ?? "",
-            apiKey: response.api_key ?? "",
-            email: response.email ?? "",
-            password: response.password ?? "")
-    }
-
     func history() async throws -> [WateringEvent] {
         try await get("/api/history", as: HistoryResponse.self).history
     }

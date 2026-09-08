@@ -29,6 +29,13 @@ struct ActivityView: View {
                     .pickerStyle(.segmented)
                     .onChange(of: section) { Haptics.selection() }
 
+                    if let error = app.activityError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.warn)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     switch section {
                     case .waterings: wateringList
                     case .log: logList
@@ -39,7 +46,7 @@ struct ActivityView: View {
             }
             .background(GardenBackground())
             .topEdgeFade()
-            .refreshable { await app.refreshActivity() }
+            .refreshable { await app.refreshActivity(reportErrors: true) }
             .task { await app.refreshActivity() }
         }
     }

@@ -3,60 +3,93 @@ rules_version = '2';
 // Firestore is the mirror the phone reads when it is away from home, and the
 // queue it drops commands into. The hub remains the source of truth.
 //
-// Everything here is gated on a signed-in account. There is one account (the
-// hub's own), so these rules protect the data from the open internet rather
-// than separating users from each other. Nothing is deletable: history and
-// logs are an append-only record, and a command's outcome has to survive
-// long enough for the phone that sent it to read the result.
+// Access is restricted to a named list of accounts. The weaker rule this
+// replaces was `request.auth != null`, which sounds like a lock and is not
+// one: the Web API key ships inside the app binary and is trivially
+// extracted, and the project accepts email/password sign-ups, so anyone who
+// pulled the key could mint an account, read the whole garden, and queue a
+// watering. Verified, not theorised — a throwaway account did exactly that
+// before this change, and is denied by the rules below.
+//
+// The allowlist holds whatever the sign-up setting later becomes. Turning
+// off public sign-up in the console is still worth doing; neither measure
+// should be the only one.
+//
+// Nothing is deletable: history and logs are an append-only record, and a
+// command's outcome has to survive long enough for the phone that sent it
+// to read the result.
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth.token.email.matches("firebase@flutterflow.io");
+
+    // The accounts allowed anywhere near the garden, by uid.
+    //
+    // An allowlist rather than `request.auth != null`, because signing in is
+    // not the same as being invited: the project accepts public sign-ups and
+    // the Web API key ships inside the app binary, so "any authenticated
+    // user" means anyone who unzipped the app. Adding a household member is
+    // a deliberate edit here, which is the point.
+    //
+    // Emails are deliberately not written down — this file is public. The
+    // mapping lives in the Firebase console under Authentication.
+    function allowed() {
+      return request.auth != null && request.auth.uid in [
+        "YL7ia18INyayzddkA5Gw8Q98y242",  // the hub, and every app paired to it
+        "tzJ43HgxvYdGaXdNNtlF6C8jAQ62",  // owner
+        "SqQRDja3POYVcRe4qzpEJDoNQjm2",  // household
+        "ylu3UsV6qUUrn9wl1jrZRCS2Ak72",  // household
+        // The FlutterFlow builder's service account, from the previous app.
+        // It has not signed in since the day it was created. Drop this line
+        // once that app is retired for good.
+        "dK7CvXgAf0VZp6FNl1H3oCorwUI2"
+      ];
     }
 
+    // Default deny. Anything not matched below is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Left from the previous FlutterFlow app. It used to be world-readable;
+    // nothing in this system reads it, so it is closed rather than trusted.
     match /permitted_users/{document} {
-      allow create: if false;
-      allow read: if true;
-      allow write: if false;
-      allow delete: if false;
+      allow read, write: if false;
     }
 
     match /user/{document} {
-      allow create: if request.auth.uid == document;
-      allow read: if request.auth.uid == document;
-      allow write: if request.auth.uid == document;
+      allow create, read, write: if request.auth != null
+                                 && request.auth.uid == document;
       allow delete: if false;
     }
 
     // One document per watering, written by the hub once it has finished.
     match /water_history/{document} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if allowed();
+      allow read: if allowed();
+      allow write: if allowed();
       allow delete: if false;
     }
 
     // Kept for the previous system's override document. The current remote
     // control path is /commands.
     match /override_data/{document} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if allowed();
+      allow read: if allowed();
+      allow write: if allowed();
       allow delete: if false;
     }
 
     match /system_logs/{document} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if allowed();
+      allow read: if allowed();
+      allow write: if allowed();
       allow delete: if false;
     }
 
     match /system_health/{document} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if allowed();
+      allow read: if allowed();
+      allow write: if allowed();
       allow delete: if false;
     }
 
@@ -64,9 +97,9 @@ service cloud.firestore {
     // by the hub every few seconds. This is what the app renders when it
     // cannot reach the LAN.
     match /device_state/{document} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow create: if allowed();
+      allow read: if allowed();
+      allow write: if allowed();
       allow delete: if false;
     }
 
@@ -74,10 +107,10 @@ service cloud.firestore {
     // the hub is what moves them to done, rejected or expired. Nobody may
     // delete one, so the result stays readable by the sender.
     match /commands/{document} {
-      allow create: if request.auth != null
+      allow create: if allowed()
                     && request.resource.data.status == "pending";
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read: if allowed();
+      allow write: if allowed();
       allow delete: if false;
     }
   }

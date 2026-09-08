@@ -64,8 +64,12 @@ device — useful for deploying from this repo and for watching logs while
 debugging. With SSH enabled on the board:
 
 ```sh
-# push the app from the repo to the board
-rsync -av --delete hub/ <user>@<board>.local:~/ArduinoApps/plant-intelligence/
+# push the app from the repo to the board. The board has no rsync, and
+# scp copying only what changed suits this anyway: never copy data/, which
+# holds config.json and plant.db on the board and is empty in the repo.
+scp hub/python/*.py   arduino@<board>.local:~/ArduinoApps/plant-intelligence/python/
+scp hub/assets/*      arduino@<board>.local:~/ArduinoApps/plant-intelligence/assets/
+scp hub/sketch/*.ino  arduino@<board>.local:~/ArduinoApps/plant-intelligence/sketch/
 
 # start / stop / follow logs (on the board, or via ssh -t)
 arduino-app-cli app start ~/ArduinoApps/plant-intelligence

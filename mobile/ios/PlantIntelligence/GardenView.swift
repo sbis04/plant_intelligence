@@ -119,7 +119,7 @@ struct GardenView: View {
     }
 
     private var heroSymbol: String {
-        guard app.link == .live, let s else { return "antenna.radiowaves.left.and.right.slash" }
+        guard app.isConnected, let s else { return "antenna.radiowaves.left.and.right.slash" }
         if s.isWatering { return "drop.fill" }
         switch status {
         case "due": return "drop.circle"
@@ -151,8 +151,22 @@ struct GardenView: View {
         }
     }
 
+    /// Says plainly that this is the mirror, and how far behind it is. A
+    /// number here is worth more than the word "remote" on its own: half a
+    /// minute is fine, twenty minutes means the hub has stopped reporting.
+    private var remoteSubtitle: String {
+        guard let age = app.remoteAgeSeconds else { return "away from home · via the cloud" }
+        if age < 90 { return "away from home · updated just now" }
+        let minutes = Int(age / 60)
+        if minutes < 60 { return "away from home · updated \(minutes) min ago" }
+        return "away from home · the hub last reported \(minutes / 60) h ago"
+    }
+
     private var heroSubtitle: String {
-        guard app.link == .live else { return "check the hub connection in Settings" }
+        guard app.isConnected else { return "check the hub connection in Settings" }
+        if app.link == .remote, s?.isWatering != true {
+            return remoteSubtitle
+        }
         if s?.isWatering == true { return "stop anytime below" }
         if let next = plan?.nextWaterDate {
             return "Next watering \(next.formatted(.relative(presentation: .named))) · "
@@ -313,8 +327,8 @@ struct GardenView: View {
         }
         .glassEffect(.regular, in: .capsule)
         .shadow(color: Theme.accent.opacity(rainHold ? 0.06 : 0.14), radius: 8, y: 3)
-        .disabled(app.link != .live)
-        .opacity(app.link == .live ? 1 : 0.55)
+        .disabled(!app.isConnected || app.remoteBusy)
+        .opacity(app.isConnected && !app.remoteBusy ? 1 : 0.55)
     }
 
     // Replaces the watering bar while the assistant overlay is open;
@@ -423,6 +437,9 @@ struct LinkBadge: View {
     private var color: Color {
         switch link {
         case .live: Theme.accent
+        // Away from home is a working state, not a warning — but it is
+        // visibly not the same as being on the LAN.
+        case .remote: Theme.accent.opacity(0.65)
         case .connecting: Theme.warn
         case .offline: Theme.err
         }
@@ -431,6 +448,7 @@ struct LinkBadge: View {
     private var text: String {
         switch link {
         case .live: "live"
+        case .remote: "remote"
         case .connecting: "connecting"
         case .offline: "offline"
         }

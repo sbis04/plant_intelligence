@@ -33,7 +33,7 @@ from arduino.app_bricks.dbstorage_tsstore import TimeSeriesStore
 
 import api
 import location
-from cloud import NullSync
+from cloud import FirestoreSync, NullSync
 from config import Config
 from decision import compute_plan
 from hardware import Hardware
@@ -135,6 +135,97 @@ class AppContext:
         self._last_command_at = time.time()
         return True
 
+    # ---- remote control ------------------------------------------------------
+    def start_cloud_sync(self):
+        """Attach the Firestore mirror, if a project is configured.
+
+        Safe to call more than once: an already-running syncer ignores it,
+        and an unconfigured one stays a no-op. That is what lets the config
+        endpoint switch the cloud on without a restart.
+        """
+        if not self.config.firebase_project_id:
+            return
+        if isinstance(self.cloud, FirestoreSync):
+            self.cloud.start()
+            return
+        self.cloud = FirestoreSync(
+            self.config, self.store,
+            snapshot_fn=lambda: api.build_status(self),
+            on_command=self.handle_remote_command,
+            log=self.store.log)
+        self.cloud.start()
+
+    def handle_remote_command(self, action: str, cmd: dict) -> tuple:
+        """Execute one command that arrived through Firestore.
+
+        Returns (accepted, message); the message is written back onto the
+        command document so the phone that sent it can say what happened
+        rather than just spinning.
+
+        Remote commands go through exactly the same guards as a tap on the
+        LAN — nothing here can water more aggressively than someone standing
+        in the garden with the dashboard open.
+        """
+        if action in ("water", "start", "water_now"):
+            requested = cmd.get("duration_s")
+            duration = int(requested) if requested else self.config.base_duration_s
+            duration = max(self.config.min_duration_s,
+                           min(self.config.max_duration_s, duration))
+            if self.watering_in_flight():
+                return False, "already watering"
+            self._pending_trigger = ("manual", "requested remotely")
+            if not self.hardware.start_watering(duration):
+                self._pending_trigger = None
+                _, err = self.hardware.rpc_health()
+                return False, f"the MCU did not accept the command ({err})"
+            self._last_command_at = time.time()
+            return True, f"watering for {duration // 60} min {duration % 60} s"
+
+        if action in ("stop", "stop_watering"):
+            if not self.hardware.stop_watering():
+                _, err = self.hardware.rpc_health()
+                return False, f"the MCU did not accept the command ({err})"
+            self.store.log("OVERRIDE", "Watering stopped remotely")
+            return True, "watering stopped"
+
+        if action == "refresh":
+            # A pull-to-refresh from far away: recompute and re-mirror so the
+            # next read is current rather than up to a poll interval stale.
+            self.recompute_plan()
+            self.cloud.push_state()
+            return True, "state refreshed"
+
+        if action == "look":
+            if not self.vision or not self.vision.configured:
+                return False, "no camera configured"
+            obs = self.look_at_garden("requested remotely")
+            return (obs is not None,
+                    "camera checked" if obs else "could not read the camera view")
+
+        if action == "set_interval":
+            hours = cmd.get("base_interval_h")
+            if not hours:
+                return False, "no base_interval_h given"
+            hours = max(self.config.min_interval_h,
+                        min(self.config.max_interval_h, float(hours)))
+            self.config.base_interval_h = hours
+            self.config.save()
+            self.recompute_plan()
+            return True, f"cadence set to {hours:g} h"
+
+        if action == "set_duration":
+            seconds = cmd.get("duration_s")
+            if not seconds:
+                return False, "no duration_s given"
+            seconds = max(self.config.min_duration_s,
+                          min(self.config.max_duration_s, int(seconds)))
+            self.config.base_duration_s = seconds
+            self.config.save()
+            self.recompute_plan()
+            return True, f"watering duration set to {seconds} s"
+
+        return False, f"unknown action '{action}'"
+
     def execute_plan(self):
         plan = self.current_plan
         if not plan or not plan.water_now:
@@ -181,12 +272,15 @@ class AppContext:
             self._pending_trigger = None
             self._open_watering_row = self.store.watering_started(
                 trigger, 0, reason)
-            doc = {"trigger": trigger, "reason": reason}
-            self.cloud.push_watering_event(doc)
+            # Only a nudge: the cloud write happens on the sync thread. A
+            # blocking HTTP call here would stall MCU telemetry behind the
+            # home uplink, which is exactly backwards.
+            self.cloud.nudge()
             self._announce_watering_started(trigger, reason)
         elif name in ("watering_ended", "watering_stopped"):
             self.store.watering_ended(self._open_watering_row)
             self._open_watering_row = None
+            self.cloud.nudge()
             self.recompute_plan()
             self._announce_watering_ended(name == "watering_stopped")
 
@@ -387,6 +481,9 @@ def main():
         from push import PushService
         ctx.push = PushService(ctx.config, ctx.store, log=ctx.store.log)
 
+    def start_cloud():
+        ctx.start_cloud_sync()
+
     def start_relay():
         from relay import CameraRelay
         ctx.relay = CameraRelay(ctx.config, log=ctx.store.log)
@@ -404,6 +501,7 @@ def main():
     start_service("Camera service", start_camera)
     start_service("Push service", start_push)
     start_service("Camera relay", start_relay)
+    start_service("Cloud sync", start_cloud)
 
     api.register(ui, ctx)
 

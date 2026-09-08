@@ -200,6 +200,29 @@ struct SettingsView: View {
                             .foregroundStyle(Theme.textMuted)
                     }
 
+                    PanelCard(title: "Away from home") {
+                        kv("Status", app.isPairedForRemote
+                                     ? (app.link == .remote ? "In use now" : "Paired")
+                                     : "Not paired")
+                        if app.link == .remote, let age = app.remoteAgeSeconds {
+                            kv("Hub last reported", age < 90
+                               ? "just now"
+                               : "\(Int(age / 60)) min ago")
+                        }
+                        if app.isPairedForRemote {
+                            Button("Forget remote access") {
+                                app.forgetRemoteAccess()
+                                Haptics.notification(.success)
+                            }
+                            .buttonStyle(.glass)
+                        }
+                        Text(app.isPairedForRemote
+                             ? "When the hub isn't reachable on Wi-Fi, the app reads the garden from the cloud and queues watering commands there. The hub picks them up within about ten seconds. Notifications arrive either way."
+                             : "Open the app once on your home Wi-Fi and it will pair itself for use away from home. Nothing to type in.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textMuted)
+                    }
+
                     PanelCard(title: "About") {
                         kv("System", "Plant Intelligence")
                         kv("Hub", "Arduino UNO Q")

@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// Firestore is the mirror the phone reads when it is away from home, and the
+// queue it drops commands into. The hub remains the source of truth.
+//
+// Everything here is gated on a signed-in account. There is one account (the
+// hub's own), so these rules protect the data from the open internet rather
+// than separating users from each other. Nothing is deletable: history and
+// logs are an append-only record, and a command's outcome has to survive
+// long enough for the phone that sent it to read the result.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth.token.email.matches("firebase@flutterflow.io");
+    }
+
+    match /permitted_users/{document} {
+      allow create: if false;
+      allow read: if true;
+      allow write: if false;
+      allow delete: if false;
+    }
+
+    match /user/{document} {
+      allow create: if request.auth.uid == document;
+      allow read: if request.auth.uid == document;
+      allow write: if request.auth.uid == document;
+      allow delete: if false;
+    }
+
+    // One document per watering, written by the hub once it has finished.
+    match /water_history/{document} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // Kept for the previous system's override document. The current remote
+    // control path is /commands.
+    match /override_data/{document} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /system_logs/{document} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+
+    match /system_health/{document} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // The live snapshot: a single document, device_state/current, refreshed
+    // by the hub every few seconds. This is what the app renders when it
+    // cannot reach the LAN.
+    match /device_state/{document} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // Remote taps waiting to be picked up. The app creates them as pending;
+    // the hub is what moves them to done, rejected or expired. Nobody may
+    // delete one, so the result stays readable by the sender.
+    match /commands/{document} {
+      allow create: if request.auth != null
+                    && request.resource.data.status == "pending";
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+  }
+}

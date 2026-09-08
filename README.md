@@ -17,6 +17,7 @@ PlantIntelligence/
 │   └── assets/     Built-in web dashboard
 ├── mobile/
 │   └── ios/        Native iOS companion app (in progress)
+├── cloud/          Firestore rules and indexes for remote access
 └── docs/           Architecture and project plan
 ```
 
@@ -99,6 +100,9 @@ from the start, probe or no probe.
 | POST   | `/api/push/register` | Register an APNs token from the app  |
 | POST   | `/api/push/config` | Install the APNs auth key            |
 | POST   | `/api/push/test` | Send a test notification               |
+| POST   | `/api/cloud/config` | Point the hub at a Firebase project |
+| GET    | `/api/cloud/status` | Whether the mirror is landing documents |
+| GET    | `/api/cloud/pair` | Hand credentials to an app on the LAN |
 
 A WebSocket `telemetry` event pushes the same status payload every few
 seconds for live clients.
@@ -142,10 +146,59 @@ token) and check Settings → Notifications, or:
 curl -X POST http://plantintelligence.local:7000/api/push/test
 ```
 
+## Away from home
+
+The system is local-first and stays that way: SQLite on the board is the
+source of truth, and the app talks straight to the hub whenever it can see
+it. Firestore is a mirror for when it cannot.
+
+| Collection | Written by | Contents |
+|---|---|---|
+| `device_state/current` | hub | one live document — the same payload `/api/status` returns |
+| `water_history` | hub | one document per completed watering |
+| `system_logs` | hub | the same log the dashboard shows |
+| `commands` | app | remote taps, marked `done`/`rejected` by the hub |
+
+The app tries the LAN first on every poll, with a short timeout while it is
+already remote, so walking back in the front door switches it back within
+one cycle and there is nothing to tap. The badge says `live` or `remote`,
+and the remote view says how far behind the mirror is — a hub that has
+stopped reporting is a different problem from a phone that is away, and the
+app should not present one as the other.
+
+Commands go the other way as documents the hub polls for. Each one carries
+its own status and result, so a tap that never took effect is visible as
+such rather than looking identical to one that did. Anything older than ten
+minutes is expired unrun: waking up from an outage to a queue of yesterday
+evening's taps and running them all is worse than ignoring them.
+
+Notifications need none of this. The hub pushes straight to APNs over the
+internet, so alerts and the Live Activity countdown already reach the phone
+anywhere — that path never cared which network the phone was on.
+
+### Setting it up
+
+Rules and indexes live in `cloud/`:
+
+```bash
+cd cloud && firebase deploy --only firestore:rules,firestore:indexes
+```
+
+Then point the hub at the project. Credentials are written only to
+`hub/data/config.json` on the board, which is gitignored:
+
+```bash
+hub/tools/configure-cloud.sh
+```
+
+Devices pair themselves: open the app once on the home Wi-Fi and it collects
+the credentials from the hub over the LAN and files them in the Keychain.
+`/api/cloud/pair` only answers callers on a private address, and the item is
+stored `WhenUnlockedThisDeviceOnly` so it does not ride an iCloud backup onto
+a device that was never home.
+
 ## Roadmap
 
 - Native iOS app over the local API (mobile/ios)
-- Cloud sync for remote access — the seam is `hub/python/cloud.py`; local
-  document shapes already mirror the previous system's Firestore schema
 - Soil probe fleet: the engine takes one probe today, N by config
 - On-device anomaly detection (pump ran, soil never responded)

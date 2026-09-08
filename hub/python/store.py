@@ -70,6 +70,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _as_dt(value):
+    """Stored ISO string back to a datetime, so the cloud layer can type it
+    as a real Firestore timestamp rather than shipping a string."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 class Store:
     def __init__(self, db_path: str = DB_PATH):
         os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -188,6 +199,82 @@ class Store:
              "manual_override": bool(r[4]), "reason": r[5]}
             for r in rows
         ]
+
+    # ---- cloud outbox ------------------------------------------------------
+    # `synced` is the only coordination between SQLite and Firestore: a row
+    # is marked only once the document has been accepted, so an outage just
+    # lengthens the queue and a crash mid-sync repeats at most one document.
+
+    def unsynced_waterings(self, limit: int = 40) -> list:
+        """Oldest first — history should arrive in the order it happened.
+
+        Only finished waterings go up. A row whose end has not been recorded
+        yet would be mirrored as a watering that never stopped, and there is
+        no second write to correct it.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, water_started_at, water_ended_at, planned_duration_ms,"
+                " trigger, manual_override, reason FROM water_history"
+                " WHERE synced = 0 AND water_ended_at IS NOT NULL"
+                " ORDER BY id ASC LIMIT ?", (limit,),
+            ).fetchall()
+        return [
+            (r[0], {
+                "water_started_at": _as_dt(r[1]),
+                "water_ended_at": _as_dt(r[2]),
+                "planned_duration_ms": r[3],
+                "trigger": r[4],
+                "manual_override": bool(r[5]),
+                "reason": r[6] or "",
+            })
+            for r in rows
+        ]
+
+    def mark_watering_synced(self, row_id: int):
+        with self._lock:
+            self._db.execute("UPDATE water_history SET synced = 1 WHERE id = ?",
+                             (row_id,))
+            self._db.commit()
+
+    def unsynced_logs(self, limit: int = 40) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, timestamp, event_type, message, is_error FROM system_logs"
+                " WHERE synced = 0 ORDER BY id ASC LIMIT ?", (limit,),
+            ).fetchall()
+        return [
+            (r[0], {"timestamp": _as_dt(r[1]), "event_type": r[2],
+                    "message": r[3], "is_error": bool(r[4])})
+            for r in rows
+        ]
+
+    def mark_log_synced(self, row_id: int):
+        with self._lock:
+            self._db.execute("UPDATE system_logs SET synced = 1 WHERE id = ?",
+                             (row_id,))
+            self._db.commit()
+
+    def outbox_depth(self) -> dict:
+        with self._lock:
+            waterings = self._db.execute(
+                "SELECT COUNT(*) FROM water_history WHERE synced = 0"
+                " AND water_ended_at IS NOT NULL").fetchone()[0]
+            logs = self._db.execute(
+                "SELECT COUNT(*) FROM system_logs WHERE synced = 0").fetchone()[0]
+        return {"waterings": waterings, "logs": logs}
+
+    def mark_all_synced(self):
+        """Draw a line under the backlog.
+
+        Enabling the cloud on a hub that has been running locally for weeks
+        would otherwise replay its entire history as a few thousand writes.
+        Called once when sync is first configured.
+        """
+        with self._lock:
+            self._db.execute("UPDATE water_history SET synced = 1")
+            self._db.execute("UPDATE system_logs SET synced = 1")
+            self._db.commit()
 
     def close_stale_open_rows(self, max_age_min: int = 15):
         """Reconcile rows left open by a restart.

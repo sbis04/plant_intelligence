@@ -124,6 +124,18 @@ class Config:
     apns_bundle_id: str = "com.souvikbiswas.plants"
     apns_use_sandbox: bool = True        # development builds use the sandbox
 
+    # --- cloud sync (Firestore, for access from outside the home) -------------
+    # The hub stays the source of truth; Firestore is a mirror the phone can
+    # read when it cannot see the LAN, plus a queue for commands coming the
+    # other way. Credentials live only in hub/data/config.json (gitignored) —
+    # set them through POST /api/cloud/config, never in source.
+    firebase_project_id: str = ""
+    firebase_api_key: str = ""
+    firebase_email: str = ""
+    firebase_password: str = ""
+    cloud_sync_interval_s: int = 30      # how often the live state doc is refreshed
+    cloud_command_poll_s: int = 10       # how quickly a remote tap is noticed
+
     # --- failsafe ----------------------------------------------------------------
     failsafe_silence_h: int = 14         # MCU waters on its own after this silence
 

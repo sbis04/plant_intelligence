@@ -24,6 +24,17 @@ from typing import Optional
 from fastapi import Request
 
 
+
+def _is_private_address(host: str) -> bool:
+    """Is this caller on the local network (or the hub itself)?"""
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local
+
+
 def _location(ctx) -> dict:
     return {
         "name": ctx.config.location_name,
@@ -46,27 +57,37 @@ def _vision(ctx) -> Optional[dict]:
     return {"available": True, "observation": d}
 
 
+def build_status(ctx) -> dict:
+    """The whole live picture, in one shape.
+
+    Both the LAN endpoint and the Firestore mirror serve this, so the app
+    sees identical fields whether it is at home or across the country and
+    never has to care which path the data arrived by.
+    """
+    snap = ctx.hardware.snapshot()
+    snap["soil_pct"] = ctx.config.soil_raw_to_pct(snap.get("soil_raw", -1))
+    return {
+        "status": snap,
+        "plan": ctx.current_plan.to_dict() if ctx.current_plan else None,
+        "weather": ctx.current_weather.to_dict() if ctx.current_weather else None,
+        "location": _location(ctx),
+        "assistant": {
+            "cloud_configured": bool(ctx.config.cloud_llm_api_key),
+            "last_backend": ctx.assistant.last_backend if ctx.assistant else None,
+        },
+        "push": {
+            "configured": bool(ctx.push and ctx.push.configured),
+            "devices": ctx.store.push_token_counts().get("alert", 0),
+        },
+        "vision": _vision(ctx),
+    }
+
+
 def register(ui, ctx):
     """Wire endpoints onto the WebUI brick. `ctx` is the AppContext from main."""
 
     def status():
-        snap = ctx.hardware.snapshot()
-        snap["soil_pct"] = ctx.config.soil_raw_to_pct(snap.get("soil_raw", -1))
-        return {
-            "status": snap,
-            "plan": ctx.current_plan.to_dict() if ctx.current_plan else None,
-            "weather": ctx.current_weather.to_dict() if ctx.current_weather else None,
-            "location": _location(ctx),
-            "assistant": {
-                "cloud_configured": bool(ctx.config.cloud_llm_api_key),
-                "last_backend": ctx.assistant.last_backend if ctx.assistant else None,
-            },
-            "push": {
-                "configured": bool(ctx.push and ctx.push.configured),
-                "devices": ctx.store.push_token_counts().get("alert", 0),
-            },
-            "vision": _vision(ctx),
-        }
+        return build_status(ctx)
 
     def vision_observe():
         """Look at the garden right now. Used by the app's refresh and when
@@ -98,7 +119,8 @@ def register(ui, ctx):
         from dataclasses import asdict
         cfg = asdict(ctx.config)
         # Never hand secrets back out over the LAN — report presence only.
-        for secret in ("camera_password", "cloud_llm_api_key", "apns_key_p8"):
+        for secret in ("camera_password", "cloud_llm_api_key", "apns_key_p8",
+                       "firebase_api_key", "firebase_password"):
             cfg[secret] = bool(cfg.get(secret))
         return {"config": cfg}
 
@@ -305,6 +327,69 @@ def register(ui, ctx):
         ctx.store.log("SYSTEM", "Camera configured" if rtsp_url else "Camera removed")
         return {"accepted": True}
 
+    def cloud_config(project_id: str = "", api_key: str = "", email: str = "",
+                     password: str = ""):
+        """Point the hub at a Firebase project.
+
+        Credentials are written to hub/data/config.json, which is gitignored
+        and lives on the board only. They are never read back out — the
+        status endpoint reports presence, not values.
+        """
+        first_time = not ctx.config.firebase_project_id
+        ctx.config.firebase_project_id = project_id.strip()
+        ctx.config.firebase_api_key = api_key.strip()
+        ctx.config.firebase_email = email.strip()
+        if password:
+            ctx.config.firebase_password = password
+        ctx.config.save()
+        if not project_id.strip():
+            ctx.store.log("CLOUD", "Firestore sync removed — local only")
+            return {"accepted": True}
+        if first_time:
+            # Weeks of local history would otherwise replay as thousands of
+            # writes the moment sync is switched on.
+            ctx.store.mark_all_synced()
+        ctx.store.log("CLOUD", f"Firestore sync configured ({project_id.strip()})")
+        ctx.start_cloud_sync()
+        return {"accepted": True}
+
+    async def cloud_pair(request: Request):
+        """Hand the Firestore credentials to an app on the home network.
+
+        This is how a phone gets set up for remote access without anyone
+        typing a password into it: pair once while at home, and the app files
+        the credentials in its Keychain for when it is away.
+
+        Only answered for callers on a private address. That is the same
+        trust boundary the rest of this API already sits behind — anyone on
+        the home Wi-Fi can already water the garden — but these credentials
+        reach further than the LAN does, so the check is explicit rather
+        than assumed.
+        """
+        client = request.client.host if request.client else ""
+        if not _is_private_address(client):
+            return {"error": "pairing is only available on the home network"}
+        if not ctx.config.firebase_project_id:
+            return {"error": "no Firebase project configured on the hub"}
+        ctx.store.log("CLOUD", f"Remote access paired with a device at {client}")
+        return {
+            "project_id": ctx.config.firebase_project_id,
+            "api_key": ctx.config.firebase_api_key,
+            "email": ctx.config.firebase_email,
+            "password": ctx.config.firebase_password,
+        }
+
+    def cloud_status():
+        """Whether the mirror is actually landing documents, plus how much
+        is still queued locally. Both halves matter: a healthy connection
+        with a growing outbox is still a problem."""
+        st = ctx.cloud.status()
+        st["outbox"] = ctx.store.outbox_depth()
+        return {"cloud": st}
+
+    ui.expose_api("POST", "/api/cloud/config", cloud_config)
+    ui.expose_api("GET", "/api/cloud/pair", cloud_pair)
+    ui.expose_api("GET", "/api/cloud/status", cloud_status)
     ui.expose_api("GET", "/api/system", system)
     ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)
     ui.expose_api("GET", "/api/camera/stream", camera_stream)

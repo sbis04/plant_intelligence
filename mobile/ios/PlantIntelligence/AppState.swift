@@ -14,9 +14,21 @@ final class AppState {
         }
     }
 
-    enum Link: Equatable { case connecting, live, offline }
+    /// How the app is reaching the garden right now.
+    /// `live` is the hub over the LAN; `remote` is the Firestore mirror,
+    /// used when the hub cannot be seen. The distinction is shown rather
+    /// than hidden — remote data is seconds behind and commands take a
+    /// moment to be picked up, and it is better to say so.
+    enum Link: Equatable { case connecting, live, remote, offline }
 
     var link: Link = .connecting
+
+    /// Reachable by either path. Most of the UI only cares about this.
+    var isConnected: Bool { link == .live || link == .remote }
+
+    /// How stale the cloud mirror is, when that is the path being used.
+    var remoteAgeSeconds: TimeInterval?
+    var remoteBusy = false
     var status: StatusResponse?
     var history: [WateringEvent] = []
     var logs: [LogEntry] = []
@@ -57,9 +69,17 @@ final class AppState {
             hubAddress = "plantintelligence.local:7000"
         }
         SharedGardenStore.hubAddress = hubAddress
+        cloud = RemoteAccess.load().map(CloudClient.init(credentials:))
     }
 
     var client: HubClient? { HubClient(address: hubAddress) }
+
+    /// Resolved at launch from whatever pairing left in the Keychain. Nil
+    /// means this device has never been on the home network, so there is
+    /// nothing to fall back to.
+    @ObservationIgnored private var cloud: CloudClient?
+
+    var isPairedForRemote: Bool { cloud != nil }
 
     // MARK: - Polling
 
@@ -81,17 +101,63 @@ final class AppState {
         pollTask = nil
     }
 
+    /// Try the hub, then the mirror.
+    ///
+    /// The LAN attempt comes first every time, even while remote, and uses a
+    /// short timeout so it costs little when it is going to fail. That is
+    /// what makes walking back in the front door switch the app back to the
+    /// direct connection within one poll, with nothing to tap.
     func refreshStatus() async {
-        guard let client else { link = .offline; return }
+        if let client {
+            do {
+                let latestStatus = try await client.status(timeout: link == .live ? 8 : 3)
+                status = latestStatus
+                link = .live
+                remoteAgeSeconds = nil
+                lastError = nil
+                cacheForWidgets(latestStatus)
+                reactToWateringState(latestStatus)
+                await pairForRemoteIfNeeded()
+                return
+            } catch {
+                // Fall through to the cloud rather than reporting offline.
+            }
+        }
+
+        guard let cloud else { link = .offline; return }
         do {
-            let latestStatus = try await client.status()
+            let latestStatus = try await cloud.status()
             status = latestStatus
-            link = .live
+            link = .remote
+            remoteAgeSeconds = try? await cloud.stateAge()
+            lastError = nil
             cacheForWidgets(latestStatus)
             reactToWateringState(latestStatus)
         } catch {
             link = .offline
+            lastError = error.localizedDescription
         }
+    }
+
+    /// Collect the Firestore credentials from the hub while we can see it.
+    /// Runs at most once per launch and only while on the LAN.
+    @ObservationIgnored private var pairingAttempted = false
+
+    private func pairForRemoteIfNeeded() async {
+        guard cloud == nil, !pairingAttempted, let client else { return }
+        pairingAttempted = true
+        guard let credentials = try? await client.pairRemoteAccess(),
+              credentials.isComplete else { return }
+        RemoteAccess.save(credentials)
+        cloud = CloudClient(credentials: credentials)
+    }
+
+    /// Drop the stored credentials — Settings offers this so a device can be
+    /// un-paired without reinstalling.
+    func forgetRemoteAccess() {
+        RemoteAccess.forget()
+        cloud = nil
+        pairingAttempted = false
     }
 
     // MARK: - Notifications & live activity
@@ -145,6 +211,11 @@ final class AppState {
     }
 
     func refreshActivity() async {
+        if link == .remote, let cloud {
+            history = (try? await cloud.history()) ?? history
+            logs = (try? await cloud.logs()) ?? logs
+            return
+        }
         guard let client else { return }
         history = (try? await client.history()) ?? history
         logs = (try? await client.logs()) ?? logs
@@ -153,37 +224,54 @@ final class AppState {
     // MARK: - Actions
 
     func waterNow() async {
+        await command(remote: { try await $0.water() },
+                      local: { try await $0.water() })
+    }
+
+    func stopWatering() async {
+        await command(remote: { try await $0.stop() },
+                      local: { try await $0.stop() })
+    }
+
+    /// One path for both transports.
+    ///
+    /// Remotely, the hub is polling rather than listening, so the command
+    /// sits in Firestore for a few seconds before anything happens. The
+    /// cloud client waits for the hub to write back what it did, and
+    /// `remoteBusy` keeps the button honest about that wait instead of
+    /// looking like nothing happened.
+    private func command(
+        remote: @escaping @Sendable (CloudClient) async throws -> String,
+        local: @escaping @Sendable (HubClient) async throws -> SimpleResponse
+    ) async {
+        if link == .remote, let cloud {
+            remoteBusy = true
+            defer { remoteBusy = false }
+            do {
+                _ = try await remote(cloud)
+                await refreshStatus()
+                await refreshActivity()
+                WidgetCenter.shared.reloadAllTimelines()
+                Haptics.notification(.success)
+            } catch {
+                lastError = error.localizedDescription
+                Haptics.notification(.error)
+            }
+            return
+        }
+
         guard let client else {
             Haptics.notification(.error)
             return
         }
         do {
-            let response = try await client.water()
+            let response = try await local(client)
             guard response.accepted != false, response.error == nil else {
                 Haptics.notification(.error)
                 return
             }
             await refreshStatus()
             await refreshActivity()
-            WidgetCenter.shared.reloadAllTimelines()
-            Haptics.notification(.success)
-        } catch {
-            Haptics.notification(.error)
-        }
-    }
-
-    func stopWatering() async {
-        guard let client else {
-            Haptics.notification(.error)
-            return
-        }
-        do {
-            let response = try await client.stop()
-            guard response.accepted != false, response.error == nil else {
-                Haptics.notification(.error)
-                return
-            }
-            await refreshStatus()
             WidgetCenter.shared.reloadAllTimelines()
             Haptics.notification(.success)
         } catch {

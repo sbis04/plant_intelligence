@@ -349,7 +349,7 @@ def register(ui, ctx):
             # Weeks of local history would otherwise replay as thousands of
             # writes the moment sync is switched on.
             ctx.store.mark_all_synced()
-        ctx.store.log("CLOUD", f"Firestore sync configured ({project_id.strip()})")
+        ctx.store.log("CLOUD", "Firestore sync configured")
         ctx.start_cloud_sync()
         return {"accepted": True}
 

@@ -200,7 +200,6 @@ class FirestoreSync:
         return {
             "configured": self.configured,
             "connected": self.connected,
-            "project_id": self._cfg.firebase_project_id,
             "last_write_s_ago": round(time.time() - self._last_write_ok, 1)
             if self._last_write_ok else None,
             "write_failures": self._write_failures,
@@ -484,8 +483,10 @@ class FirestoreSync:
             return
         self._started = True
         threading.Thread(target=self._loop, name="cloud-sync", daemon=True).start()
-        self._log("CLOUD", "Firestore sync starting for project "
-                           f"{self._cfg.firebase_project_id}")
+        # The project id is deliberately not logged: the system log is on
+        # screen in the dashboard and in the app, and there is no reason to
+        # put an account identifier where a screenshot will pick it up.
+        self._log("CLOUD", "Firestore sync starting")
 
     def _loop(self):
         state_due = 0.0

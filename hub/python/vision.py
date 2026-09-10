@@ -147,6 +147,13 @@ class VisionService:
         # the decision engine stops trusting it after a while.
         self._wet_since: Optional[datetime] = None
         self.busy = False
+        # Whether the camera was reachable last time we looked. A camera that
+        # is off, unplugged or has had its local stream taken away is a
+        # standing condition, not thirty fresh incidents a day: the log says
+        # so once when it starts and once when it clears, the way the MCU
+        # link does. Repeating it every interval buries the entries that
+        # actually need attention under red text nobody reads any more.
+        self._camera_ok = True
 
     @property
     def configured(self) -> bool:
@@ -196,17 +203,31 @@ class VisionService:
         try:
             obs = self._observe(now, why)
         except Exception as e:
-            self._log("VISION", f"Could not read the camera view: {e}", True)
+            self._note_camera_down(f"Could not read the camera view: {e}")
             return None
         finally:
             self.busy = False
         return obs
 
+    # ---- camera availability -------------------------------------------------
+    def _note_camera_down(self, reason: str):
+        """Report the camera going away once, then stay quiet about it."""
+        if self._camera_ok:
+            self._camera_ok = False
+            self._log("VISION", f"{reason} — the camera vision system is"
+                                " paused until it returns", True)
+
+    def _note_camera_up(self):
+        if not self._camera_ok:
+            self._camera_ok = True
+            self._log("VISION", "Camera is back; watching the garden again")
+
     def _observe(self, now: datetime, why: str) -> Optional[Observation]:
         jpeg = self.ctx.camera.snapshot()
         if not jpeg:
-            self._log("VISION", "No camera frame to look at", True)
+            self._note_camera_down("No camera frame to look at")
             return None
+        self._note_camera_up()
         jpeg = self._shrink(jpeg, self.ctx.config.vision_image_width)
 
         data = self._ask_gemini(jpeg, self._system_watering_context(now))

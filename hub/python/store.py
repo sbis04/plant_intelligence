@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS vision_observations (
     confidence REAL NOT NULL DEFAULT 0,
     note TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS runtime_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS push_tokens (
     token TEXT PRIMARY KEY,
     kind TEXT NOT NULL,               -- alert | activity-start | activity-update
@@ -373,6 +377,37 @@ class Store:
                 "              THEN substr(?, 1, 60) ELSE title END"
                 " WHERE id = ?",
                 (now, role, content, thread_id))
+            self._db.commit()
+
+    # ---- durable runtime state ------------------------------------------------
+    # A handful of timers describe how long a condition has held. Kept in
+    # memory they are reset by every restart, which quietly disables any
+    # safeguard that only fires after a long enough run — see the soil-block
+    # cap in main.py. Small, rare writes; this is not a metrics store.
+
+    def state_set_time(self, key: str, when: datetime):
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO runtime_state (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, when.astimezone(timezone.utc).isoformat()))
+            self._db.commit()
+
+    def state_get_time(self, key: str) -> Optional[datetime]:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT value FROM runtime_state WHERE key = ?", (key,)).fetchone()
+        if not row:
+            return None
+        try:
+            return datetime.fromisoformat(row[0])
+        except ValueError:
+            return None
+
+    def state_clear(self, *keys: str):
+        with self._lock:
+            for key in keys:
+                self._db.execute("DELETE FROM runtime_state WHERE key = ?", (key,))
             self._db.commit()
 
     # ---- push tokens ------------------------------------------------------------

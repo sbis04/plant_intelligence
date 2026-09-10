@@ -18,7 +18,7 @@ import os
 import socket
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 # Backstop for every library that forgets to pass a timeout. urllib3 (and
@@ -63,10 +63,53 @@ class AppContext:
         self._preslot_checked_for = None   # slot whose pre-watering look is done
         self._last_command_at = None       # when we last told the MCU to water
         self._warmup_logged = False        # said "waiting for sensors" once
-        self._soil_block_since = None      # when soil last started blocking
-        self._soil_dry_since = None        # when soil first read below the trigger
+        # When soil last started blocking. Restored from the database, not
+        # reset to None here: see _restore_soil_block.
+        self._soil_block_since = None
+        # When soil first read below the trigger. Deliberately NOT persisted —
+        # this timer makes a watering more likely, and 45 minutes of debounce
+        # is a small thing to re-earn after a restart. The block timer above
+        # is persisted because losing it makes watering less likely, which is
+        # the direction that kills plants.
+        self._soil_dry_since = None
 
         self.hardware.on_event(self._on_mcu_event)
+        self._restore_soil_block()
+
+    # A restart takes a minute or two. A gap longer than this means nobody
+    # was watching the soil, so an unbroken wet run cannot be claimed across
+    # it — the clock has to start again.
+    SOIL_BLOCK_GAP_S = 1800
+
+    def _restore_soil_block(self):
+        """Bring the soil-block clock back across a restart.
+
+        The 48-hour cap exists to catch a probe that reads wet forever while
+        the garden quietly dries out. Holding its start time only in memory
+        defeated it: every restart — including one from the watchdog — set
+        the clock back to zero, so a hub that restarts daily could never
+        reach the cap that protects it.
+
+        Continuity still has to be real, which is what the companion
+        timestamp is for. If nothing observed the soil for longer than a
+        restart takes, the run is not known to have continued and the clock
+        legitimately starts over.
+        """
+        since = self.store.state_get_time("soil_block_since")
+        seen = self.store.state_get_time("soil_block_seen_at")
+        if not since or not seen:
+            return
+        gap = (datetime.now(timezone.utc) - seen).total_seconds()
+        if gap > self.SOIL_BLOCK_GAP_S:
+            self.store.state_clear("soil_block_since", "soil_block_seen_at")
+            self.store.log(
+                "SYSTEM", f"Soil block timer restarted: {gap / 3600:.0f} h passed"
+                " without readings, so the wet run cannot be assumed to continue")
+            return
+        self._soil_block_since = since.astimezone(self.tz)
+        held = (datetime.now(timezone.utc) - since).total_seconds() / 3600.0
+        self.store.log("SYSTEM", "Soil has been blocking watering for"
+                                 f" {held:.0f} h, carried across the restart")
 
     # ---- location -------------------------------------------------------------
     def try_autolocate(self) -> bool:
@@ -380,9 +423,25 @@ class AppContext:
         # probe that never comes down can't block forever.
         blocking = (soil_pct is not None
                     and soil_pct >= self.config.soil_skip_above_pct)
-        if blocking:
-            self._soil_block_since = self._soil_block_since or now
+        if soil_pct is None:
+            # No reading yet. Unknown is not dry: every restart begins with a
+            # sensor-less minute or two, and treating that as "the soil came
+            # down" wiped the very clock this is meant to keep. Leave the run
+            # neither confirmed nor broken — the gap check on restore is what
+            # decides whether a long blind stretch invalidates it.
+            pass
+        elif blocking:
+            if self._soil_block_since is None:
+                self._soil_block_since = now
+                self.store.state_set_time("soil_block_since", now)
+            # Proof the run was observed through to here, so a restart can
+            # tell a brief gap from a blind stretch.
+            self.store.state_set_time("soil_block_seen_at", now)
         else:
+            # An actual reading below the threshold: the soil really did come
+            # down, so the run is over.
+            if self._soil_block_since is not None:
+                self.store.state_clear("soil_block_since", "soil_block_seen_at")
             self._soil_block_since = None
         block_h = ((now - self._soil_block_since).total_seconds() / 3600.0
                    if self._soil_block_since else 0.0)

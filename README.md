@@ -6,6 +6,9 @@ live weather and soil feedback instead of running a fixed timer, keeps a
 hardware-level failsafe so the plants never depend on software being up,
 and serves a local dashboard and API to a companion mobile app.
 
+<img width="1800" height="1350" alt="Plant Intelligence Cover" src="https://github.com/user-attachments/assets/077bf7e5-4bc0-4374-97d8-ee40a0ba04f0" />
+
+
 ## Repository layout
 
 ```

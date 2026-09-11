@@ -41,13 +41,23 @@ The planner considers soil moisture, temperature, humidity, forecast rain, recen
 
 Every plan includes its reasons, so the dashboard and apps can show why watering is due or why it is being held back. Before the soil probe is installed and calibrated, the system can use simple 07:00 and 17:00 fallback slots.
 
-## Dashboard and Apple apps
+## AI garden assistant
 
-![Plant Intelligence on iPhone](docs/img/apple-apps.webp)
+The assistant is grounded in the garden's actual state rather than a generic prompt. It receives the latest sensor readings, watering plan, weather, recent history, system logs and camera observation for every question. It can explain why watering is being postponed, summarize recent activity or look at the current camera frame when asked how the plants are doing.
+
+Gemini Flash provides the fast, multimodal experience when an API key and internet connection are available. If the cloud cannot be reached, the hub falls back to a compact Gemma 3 1B model running locally through llama.cpp on the UNO Q's Linux side. Conversations are saved on the hub and can be continued from either the web dashboard or iPhone app.
+
+![Plant Intelligence assistant on iPhone](docs/img/apple-assistant.webp)
+
+## Dashboard and Apple apps
 
 The dashboard is served directly by the UNO Q at `http://plantintelligence.local:7000`. It shows the current conditions, camera feed, next watering decision, history, system log and assistant.
 
+![Plant Intelligence web dashboard](docs/img/web-dashboard.webp)
+
 The native iPhone and Apple Watch apps provide the same essential status and controls in a smaller form. The iPhone app also includes the camera, assistant, home screen widgets, Live Activities, haptics and watering notifications.
+
+![Plant Intelligence on iPhone](docs/img/apple-apps.webp)
 
 On the home network, the app talks directly to the hub. Away from home, approved users sign in with Google and can read status, history and logs or send water and stop commands through Firestore. Access is restricted by Firebase UID. The live camera and assistant remain local-network features. Notifications are sent directly from the hub through APNs and do not depend on Firestore.
 

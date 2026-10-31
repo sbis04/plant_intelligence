@@ -108,6 +108,18 @@ class TvWaker:
         self.last_wake = ""
         self.last_error = ""
 
+    @staticmethod
+    def _parse(ts: str):
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return None
+
+    def _away(self, t: datetime) -> bool:
+        away = (self._config.tv_wake_plan or {}).get("away") or {}
+        start, end = self._parse(away.get("from", "")), self._parse(away.get("to", ""))
+        return bool(start and end and start <= t < end)
+
     def _now(self) -> datetime:
         """Local time in the hub's time zone (the board's clock runs in UTC)."""
         try:
@@ -117,14 +129,18 @@ class TvWaker:
 
     # ---- plan -----------------------------------------------------------------
     def set_plan(self, plan: dict) -> dict:
-        """plan: {ip, macs: [...], app, wake: [{time: "HH:MM", days: [0-6]}]}.
-        Days use 0 = Sunday; empty means every day."""
+        """plan: {ip, macs: [...], app, wake: [{time: "HH:MM", days: [0-6]}],
+        away: {from, to} (ISO times; no wakes inside), wake_at: [ISO times]}.
+        Days use 0 = Sunday; empty means every day. wake_at are one-off
+        wakes, like coming back from a trip."""
         clean = {
             "ip": str(plan.get("ip", "")).strip(),
             "macs": [str(m) for m in plan.get("macs", []) if m],
             "app": str(plan.get("app", "com.souvik.dashboard")),
             "wake": [{"time": str(w.get("time", "")), "days": [int(d) for d in w.get("days", [])]}
                      for w in plan.get("wake", []) if w.get("time")],
+            "away": plan.get("away") if isinstance(plan.get("away"), dict) else None,
+            "wake_at": [str(t) for t in plan.get("wake_at", []) if t],
         }
         self._config.tv_wake_plan = clean
         self._config.save()
@@ -133,14 +149,15 @@ class TvWaker:
     def status(self) -> dict:
         plan = self._config.tv_wake_plan or {}
         return {"paired": bool(self._config.tv_client_key),
-                "wake": plan.get("wake", []), "next": self._next_wake(),
+                "wake": plan.get("wake", []), "away": plan.get("away"),
+                "next": self._next_wake(),
                 "last_wake": self.last_wake, "last_error": self.last_error}
 
     def _next_wake(self) -> str:
         plan = self._config.tv_wake_plan or {}
         now = self._now()
         best = None
-        for day_ahead in range(0, 8):
+        for day_ahead in range(0, 62):     # trips can be long
             d = now + timedelta(days=day_ahead)
             wd = (d.weekday() + 1) % 7      # Python Monday=0 -> Sunday=0
             for w in plan.get("wake", []):
@@ -148,10 +165,14 @@ class TvWaker:
                     continue
                 hh, mm = (int(x) for x in w["time"].split(":"))
                 t = d.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                if t > now and (best is None or t < best):
+                if t > now and not self._away(t) and (best is None or t < best):
                     best = t
             if best:
                 break
+        for ts in plan.get("wake_at", []):
+            t = self._parse(ts)
+            if t and t > now and (best is None or t < best):
+                best = t
         return best.isoformat(timespec="minutes") if best else ""
 
     # ---- loop -----------------------------------------------------------------
@@ -171,13 +192,21 @@ class TvWaker:
         now = self._now()
         stamp = now.strftime("%Y-%m-%d %H:%M")
         wd = (now.weekday() + 1) % 7
+        # One-off wakes (back from a trip): due within the last two minutes.
+        for ts in plan.get("wake_at", []):
+            t = self._parse(ts)
+            if t and 0 <= (now - t).total_seconds() < 120 and ("at " + ts) not in self._done:
+                self._done.add("at " + ts)
+                threading.Thread(target=self.wake, name="tv-wake-now", daemon=True).start()
+        if self._away(now):
+            return                      # nobody home: no scheduled wakes
         for w in plan.get("wake", []):
             if w["time"] == now.strftime("%H:%M") and (not w["days"] or wd in w["days"]):
                 if stamp not in self._done:
                     self._done.add(stamp)
                     threading.Thread(target=self.wake, name="tv-wake-now", daemon=True).start()
         if len(self._done) > 50:
-            self._done = {s for s in self._done if s.startswith(now.strftime("%Y-%m-%d"))}
+            self._done = {s for s in self._done if s.startswith(now.strftime("%Y-%m-%d")) or s.startswith("at ")}
 
     # ---- actions --------------------------------------------------------------
     def wake(self) -> bool:

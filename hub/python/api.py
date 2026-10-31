@@ -461,6 +461,39 @@ def register(ui, ctx):
         ctx.store.log("SYSTEM", f"Camera removed: {id}")
         return {"accepted": True}
 
+    # ---- living-room TV wake ---------------------------------------------------
+    async def tv_plan(request: Request):
+        """The TV dashboard sends its wake plan (JSON body). The first time,
+        the hub also asks the TV to allow it (press OK on the TV)."""
+        import json as _json
+        tv = getattr(ctx, "tv", None)
+        if tv is None:
+            return {"accepted": False, "error": "TV wake not ready"}
+        try:
+            plan = _json.loads((await request.body()) or b"{}")
+        except ValueError:
+            return {"accepted": False, "error": "send JSON"}
+        status = tv.set_plan(plan)
+        if not status["paired"]:
+            import threading as _t
+            _t.Thread(target=tv.pair, daemon=True).start()
+        return {"accepted": True, **status}
+
+    def tv_status():
+        tv = getattr(ctx, "tv", None)
+        return tv.status() if tv else {"paired": False, "error": "TV wake not ready"}
+
+    def tv_wake_now():
+        tv = getattr(ctx, "tv", None)
+        if tv is None:
+            return {"accepted": False, "error": "TV wake not ready"}
+        import threading as _t
+        _t.Thread(target=tv.wake, daemon=True).start()
+        return {"accepted": True}
+
+    ui.expose_api("POST", "/api/tv/plan", tv_plan)
+    ui.expose_api("GET", "/api/tv/status", tv_status)
+    ui.expose_api("POST", "/api/tv/wake", tv_wake_now)
     ui.expose_api("GET", "/api/cameras", cameras_list)
     ui.expose_api("GET", "/api/camera/frame", camera_frame)
     ui.expose_api("GET", "/api/camera/video.m3u8", camera_video)

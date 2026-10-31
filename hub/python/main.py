@@ -57,6 +57,7 @@ class AppContext:
         self.camera = None
         self.vision = None      # Gemini reading the actual roof (vision.py)
         self.relay = None       # go2rtc live-stream relay
+        self.tv = None          # TV wake (tvwake.TvWaker)
         self.push = None        # APNs sender, attached in main()
         self._open_watering_row = None
         self._pending_trigger = None   # trigger/reason for the next start event
@@ -548,6 +549,11 @@ def main():
         ctx.relay = CameraRelay(ctx.config, log=ctx.store.log)
         ctx.relay.start_async()
 
+    def start_tv_wake():
+        from tvwake import TvWaker
+        ctx.tv = TvWaker(ctx.config, log=ctx.store.log)
+        ctx.tv.start()
+
     def start_service(name: str, fn):
         def run():
             try:
@@ -561,6 +567,7 @@ def main():
     start_service("Push service", start_push)
     start_service("Camera relay", start_relay)
     start_service("Cloud sync", start_cloud)
+    start_service("TV wake", start_tv_wake)
 
     api.register(ui, ctx)
 

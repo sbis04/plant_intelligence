@@ -112,6 +112,13 @@ class Config:
     # "password"}. Same storage and rules as the garden camera's credentials.
     extra_cameras: list = field(default_factory=list)
 
+    # --- living-room TV wake (the TV dashboard hands the hub its wake plan) ---
+    # tv_wake_plan: {ip, macs, app, wake: [{time, days}]}, set via
+    # POST /api/tv/plan. tv_client_key: the TV's remote-control key, issued
+    # when someone presses OK on the TV's prompt; board-only like the rest.
+    tv_wake_plan: dict = field(default_factory=dict)
+    tv_client_key: str = ""
+
     # --- assistant (hybrid) --------------------------------------------------
     # With an API key set, questions go to Gemini Flash whenever the internet
     # is reachable — the on-device model stays as the offline fallback. The

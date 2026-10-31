@@ -6,7 +6,7 @@
     <title>Plant Intelligence</title>
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
-    <link rel="stylesheet" href="style.css?v=6" />
+    <link rel="stylesheet" href="style.css?v=7" />
   </head>
   <body>
     <div class="layout">
@@ -87,6 +87,20 @@
                 <div><span>Box humidity</span><b id="env-box-hum">–</b></div>
                 <div><span>Cooling fan</span><b id="env-fan">–</b></div>
               </div>
+            </section>
+
+            <section class="card" id="cameras-card">
+              <h2>Cameras</h2>
+              <ul id="cameras-list" class="cam-list"></ul>
+              <form id="camera-add" class="cam-form" autocomplete="off">
+                <p class="cam-hint">Add a Tapo camera: create a Camera Account for it in the Tapo app (Advanced Settings), then enter its IP address and that account here. The password is kept on this board only.</p>
+                <input name="name" placeholder="Name, like Front door" required />
+                <input name="ip" placeholder="Camera IP, like 192.168.68.70" required />
+                <input name="username" placeholder="Camera account username" required />
+                <input name="password" type="password" placeholder="Camera account password" required />
+                <button type="submit">Add camera</button>
+                <p id="camera-add-msg" class="cam-hint"></p>
+              </form>
             </section>
 
             <section class="card">
@@ -182,6 +196,6 @@
       <span id="dev-disk">DISK –</span>
     </footer>
     <script src="vendor/hls.min.js"></script>
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=7"></script>
   </body>
 </html>

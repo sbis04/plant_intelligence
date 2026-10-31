@@ -637,3 +637,70 @@ setInterval(refreshStatus, 3000);
 setInterval(refreshHistory, 30000);
 setInterval(refreshLog, 15000);
 setInterval(refreshSystem, 10000);
+
+
+// ---- cameras: list, add, remove (extra cameras beyond the garden one) ----
+async function refreshCameras() {
+  const list = document.getElementById("cameras-list");
+  if (!list) return;
+  try {
+    const r = await fetch("/api/cameras", { cache: "no-store" });
+    const { cameras } = await r.json();
+    list.innerHTML = "";
+    for (const c of cameras) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = c.name;
+      li.appendChild(name);
+      if (c.id !== "garden") {
+        const rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "link-btn";
+        rm.textContent = "Remove";
+        rm.onclick = async () => {
+          if (!confirm(`Remove ${c.name}?`)) return;
+          await fetch(`/api/cameras/remove?id=${encodeURIComponent(c.id)}`, { method: "POST" });
+          refreshCameras();
+        };
+        li.appendChild(rm);
+      }
+      list.appendChild(li);
+    }
+    if (!cameras.length) list.innerHTML = "<li><span>No cameras yet</span></li>";
+  } catch (e) { /* hub busy; next refresh */ }
+}
+
+document.getElementById("camera-add")?.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  const msg = document.getElementById("camera-add-msg");
+  const ip = f.ip.value.trim().replace(/^rtsp:\/\//, "").replace(/\/.*$/, "");
+  msg.textContent = "Adding…";
+  try {
+    // JSON body, so the password never appears in a URL or a log.
+    const r = await fetch("/api/cameras/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: f.name.value.trim(),
+        rtsp_url: `rtsp://${ip.includes(":") ? ip : ip + ":554"}/stream1`,
+        username: f.username.value,
+        password: f.password.value,
+      }),
+    });
+    const res = await r.json();
+    if (!res.accepted) { msg.textContent = res.error || "Couldn't add it."; return; }
+    f.reset();
+    msg.textContent = "Added. Checking for a picture…";
+    refreshCameras();
+    const t0 = Date.now();
+    const probe = await fetch(`/api/camera/frame?src=${encodeURIComponent(res.id)}&t=${t0}`, { cache: "no-store" });
+    const ok = (probe.headers.get("content-type") || "").startsWith("image/");
+    msg.textContent = ok ? `Working: got a picture in ${((Date.now() - t0) / 1000).toFixed(1)} s.`
+      : "Added, but no picture yet. Check the IP and the camera account, then remove and add it again.";
+  } catch (e) {
+    msg.textContent = "Couldn't reach the hub.";
+  }
+});
+
+refreshCameras();

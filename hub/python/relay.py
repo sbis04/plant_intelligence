@@ -40,7 +40,7 @@ class CameraRelay:
         threading.Thread(target=self._start, daemon=True).start()
 
     def _start(self):
-        if not self._config.camera_rtsp_url:
+        if not self._config.camera_rtsp_url and not self._config.extra_cameras:
             return
         try:
             self._ensure_binary()
@@ -66,18 +66,50 @@ class CameraRelay:
         os.chmod(tmp, os.stat(tmp).st_mode | stat.S_IEXEC)
         os.replace(tmp, BIN_PATH)
 
+    @staticmethod
+    def _with_creds(url: str, username: str, password: str) -> str:
+        if not username:
+            return url
+        return url.replace(
+            "rtsp://",
+            f"rtsp://{quote(username, safe='')}:{quote(password, safe='')}@", 1)
+
     def _write_config(self):
-        url = self._config.camera_rtsp_url
-        if self._config.camera_username:
-            url = url.replace(
-                "rtsp://",
-                f"rtsp://{quote(self._config.camera_username, safe='')}:"
-                f"{quote(self._config.camera_password, safe='')}@", 1)
+        streams = []
+        if self._config.camera_rtsp_url:
+            streams.append(("garden", self._with_creds(
+                self._config.camera_rtsp_url, self._config.camera_username,
+                self._config.camera_password)))
+        for cam in self._config.extra_cameras:
+            if cam.get("id") and cam.get("rtsp_url"):
+                streams.append((cam["id"], self._with_creds(
+                    cam["rtsp_url"], cam.get("username", ""),
+                    cam.get("password", ""))))
         with open(YAML_PATH, "w") as f:
             f.write("api:\n  listen: 127.0.0.1:1984\n"
                     "rtsp:\n  listen: \"\"\n"
                     "webrtc:\n  listen: \"\"\n"
-                    f"streams:\n  garden: {url}\n")
+                    "streams:\n"
+                    + "".join(f"  {sid}: {url}\n" for sid, url in streams))
+
+    def reload_async(self):
+        """Cameras changed: rewrite the stream list and restart the relay."""
+        def run():
+            try:
+                self._ensure_binary()
+                self._write_config()
+                with self._lock:
+                    if self._alive():
+                        self._proc.terminate()
+                        try:
+                            self._proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            self._proc.kill()
+                    self._spawn()
+                self._log("SYSTEM", "Camera live relay restarted")
+            except Exception as e:
+                self._log("SYSTEM", f"Camera live relay unavailable: {e}")
+        threading.Thread(target=run, daemon=True).start()
 
     def _spawn(self):
         self._proc = subprocess.Popen(

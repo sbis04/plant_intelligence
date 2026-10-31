@@ -303,3 +303,10 @@ td.err { color: var(--err); }
 #log-full td.trigger { white-space: nowrap; padding-left: 14px; }
 
 .detail.err { color: var(--err); font-weight: 600; }
+
+/* Cameras card */
+.cam-list { list-style: none; margin: 0 0 12px; padding: 0; }
+.cam-list li { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.cam-form { display: grid; gap: 8px; }
+.cam-form input { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.cam-hint { margin: 0; font-size: 0.85em; opacity: 0.75; }

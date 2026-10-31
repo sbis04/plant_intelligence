@@ -107,6 +107,10 @@ class Config:
     camera_rtsp_url: str = ""            # e.g. rtsp://192.168.68.63:554/stream1
     camera_username: str = ""
     camera_password: str = ""
+    # More cameras besides the garden one, added from the hub dashboard
+    # (POST /api/cameras/add). Each: {"id", "name", "rtsp_url", "username",
+    # "password"}. Same storage and rules as the garden camera's credentials.
+    extra_cameras: list = field(default_factory=list)
 
     # --- assistant (hybrid) --------------------------------------------------
     # With an API key set, questions go to Gemini Flash whenever the internet

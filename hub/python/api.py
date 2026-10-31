@@ -364,6 +364,108 @@ def register(ui, ctx):
     ui.expose_api("POST", "/api/cloud/config", cloud_config)
     ui.expose_api("GET", "/api/cloud/status", cloud_status)
     ui.expose_api("GET", "/api/system", system)
+    # ---- more cameras ---------------------------------------------------------
+    # The garden camera keeps its own endpoints above. Extra cameras get a
+    # snapshot and live video by id; "garden" works with these too, so a
+    # client (the TV dashboard) can treat every camera the same way.
+    class _CamCreds:
+        """The three Config fields CameraService reads, for an extra camera."""
+        def __init__(self, cam: dict):
+            self.camera_rtsp_url = cam.get("rtsp_url", "")
+            self.camera_username = cam.get("username", "")
+            self.camera_password = cam.get("password", "")
+
+    extra_services: dict = {}
+
+    def _extra_camera(cam_id: str):
+        cam = next((c for c in ctx.config.extra_cameras if c.get("id") == cam_id), None)
+        if not cam:
+            return None
+        svc = extra_services.get(cam_id)
+        if svc is None or svc._config.camera_rtsp_url != cam.get("rtsp_url"):
+            from camera import CameraService
+            svc = CameraService(_CamCreds(cam))
+            extra_services[cam_id] = svc
+        return svc
+
+    def cameras_list():
+        """Cameras by id and name. No addresses or credentials."""
+        out = []
+        if ctx.camera and ctx.camera.configured:
+            out.append({"id": "garden", "name": "Garden"})
+        out += [{"id": c["id"], "name": c.get("name") or c["id"]}
+                for c in ctx.config.extra_cameras]
+        return {"cameras": out}
+
+    def camera_frame(src: str = "garden"):
+        from fastapi.responses import Response
+        if src == "garden":
+            return camera_snapshot()
+        svc = _extra_camera(src)
+        if svc is None:
+            return Response(content="unknown camera", status_code=404)
+        jpeg = svc.snapshot()
+        if jpeg is None:
+            return {"available": False, "error": svc.last_error}
+        return Response(content=jpeg, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
+    def camera_video(src: str = "garden"):
+        """Live HLS for any camera. Lives next to live.m3u8 so the relative
+        hls/ paths inside the playlist resolve to the same proxies."""
+        from fastapi.responses import Response
+        from urllib.parse import quote
+        known = {"garden"} | {c["id"] for c in ctx.config.extra_cameras}
+        if src not in known:
+            return Response(content="unknown camera", status_code=404)
+        return _relay(f"stream.m3u8?src={quote(src, safe='')}&mp4")
+
+    async def cameras_add(request: Request):
+        """Add a camera. JSON body: name, rtsp_url, username, password. The
+        body (not the URL) carries the password so it never lands in logs."""
+        import json as _json
+        import re
+        try:
+            body = _json.loads((await request.body()) or b"{}")
+        except ValueError:
+            return {"accepted": False, "error": "send JSON"}
+        name = str(body.get("name", "")).strip()
+        url = str(body.get("rtsp_url", "")).strip()
+        if not name or not url.startswith("rtsp://"):
+            return {"accepted": False, "error": "a name and an rtsp:// address are needed"}
+        base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "camera"
+        cam_id, n = base, 2
+        taken = {"garden"} | {c["id"] for c in ctx.config.extra_cameras}
+        while cam_id in taken:
+            cam_id, n = f"{base}-{n}", n + 1
+        ctx.config.extra_cameras.append({
+            "id": cam_id, "name": name, "rtsp_url": url,
+            "username": str(body.get("username", "")),
+            "password": str(body.get("password", "")),
+        })
+        ctx.config.save()
+        if ctx.relay:
+            ctx.relay.reload_async()
+        ctx.store.log("SYSTEM", f"Camera added: {name}")
+        return {"accepted": True, "id": cam_id}
+
+    def cameras_remove(id: str):
+        before = len(ctx.config.extra_cameras)
+        ctx.config.extra_cameras = [c for c in ctx.config.extra_cameras if c.get("id") != id]
+        if len(ctx.config.extra_cameras) == before:
+            return {"accepted": False, "error": "unknown camera"}
+        extra_services.pop(id, None)
+        ctx.config.save()
+        if ctx.relay:
+            ctx.relay.reload_async()
+        ctx.store.log("SYSTEM", f"Camera removed: {id}")
+        return {"accepted": True}
+
+    ui.expose_api("GET", "/api/cameras", cameras_list)
+    ui.expose_api("GET", "/api/camera/frame", camera_frame)
+    ui.expose_api("GET", "/api/camera/video.m3u8", camera_video)
+    ui.expose_api("POST", "/api/cameras/add", cameras_add)
+    ui.expose_api("POST", "/api/cameras/remove", cameras_remove)
     ui.expose_api("GET", "/api/camera/snapshot", camera_snapshot)
     ui.expose_api("GET", "/api/camera/stream", camera_stream)
     ui.expose_api("GET", "/api/camera/live.m3u8", camera_live)

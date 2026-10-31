@@ -24,7 +24,8 @@ import socket
 import struct
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "lg_registration.json")
 CHECK_EVERY_S = 15
@@ -50,8 +51,10 @@ class _WS:
         self._buf = head.split(b"\r\n\r\n", 1)[1]
 
     def send(self, obj: dict):
-        data = json.dumps(obj).encode()
-        hdr = bytearray([0x81])
+        self._send_frame(0x1, json.dumps(obj).encode())
+
+    def _send_frame(self, opcode: int, data: bytes):
+        hdr = bytearray([0x80 | opcode])
         n = len(data)
         if n < 126:
             hdr.append(0x80 | n)
@@ -87,6 +90,8 @@ class _WS:
                 return json.loads(payload.decode("utf-8", "replace"))
             if b0 & 0x0F == 0x8:
                 raise ConnectionError("websocket closed by TV")
+            if b0 & 0x0F == 0x9:          # ping: answer, or the TV hangs up
+                self._send_frame(0xA, payload)
 
     def close(self):
         try:
@@ -102,6 +107,13 @@ class TvWaker:
         self._done = set()          # "YYYY-MM-DD HH:MM" already handled
         self.last_wake = ""
         self.last_error = ""
+
+    def _now(self) -> datetime:
+        """Local time in the hub's time zone (the board's clock runs in UTC)."""
+        try:
+            return datetime.now(ZoneInfo(self._config.timezone))
+        except Exception:
+            return datetime.now().astimezone()
 
     # ---- plan -----------------------------------------------------------------
     def set_plan(self, plan: dict) -> dict:
@@ -126,10 +138,10 @@ class TvWaker:
 
     def _next_wake(self) -> str:
         plan = self._config.tv_wake_plan or {}
-        now = datetime.now()
+        now = self._now()
         best = None
         for day_ahead in range(0, 8):
-            d = now.fromordinal(now.toordinal() + day_ahead)
+            d = now + timedelta(days=day_ahead)
             wd = (d.weekday() + 1) % 7      # Python Monday=0 -> Sunday=0
             for w in plan.get("wake", []):
                 if w["days"] and wd not in w["days"]:
@@ -156,7 +168,7 @@ class TvWaker:
 
     def _tick(self):
         plan = self._config.tv_wake_plan or {}
-        now = datetime.now()
+        now = self._now()
         stamp = now.strftime("%Y-%m-%d %H:%M")
         wd = (now.weekday() + 1) % 7
         for w in plan.get("wake", []):
@@ -182,7 +194,7 @@ class TvWaker:
             time.sleep(6 if attempt == 0 else 5)
             try:
                 self._ssap(ip, "ssap://system.launcher/launch", {"id": plan.get("app", "com.souvik.dashboard")})
-                self.last_wake = datetime.now().isoformat(timespec="minutes")
+                self.last_wake = self._now().isoformat(timespec="minutes")
                 self.last_error = ""
                 self._log("SYSTEM", "TV: dashboard opened")
                 return True

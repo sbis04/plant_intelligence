@@ -28,6 +28,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "lg_registration.json")
+# The app runs in a container on its own network, so its broadcasts never reach the LAN. A
+# note in the data folder (shared with the board) asks tools/tv-wake.sh, run by the arduino
+# user's cron on the board itself, to broadcast the wake-up there.
+def _request_path():
+    from config import CONFIG_DIR
+    return os.path.join(CONFIG_DIR, "tv-wake.json")
 CHECK_EVERY_S = 15
 
 
@@ -216,11 +222,17 @@ class TvWaker:
         if not ip or not macs:
             self.last_error = "no wake plan from the TV yet"
             return False
+        try:
+            with open(_request_path(), "w") as f:
+                json.dump({"ip": ip, "macs": macs, "at": time.time()}, f)
+        except OSError as e:
+            self._log("SYSTEM", f"TV: could not ask the board to wake it ({e})", is_error=True)
         self._magic(ip, macs)
         self._log("SYSTEM", "TV: wake signal sent")
-        # Give it time to come up, then launch the dashboard (retry while it boots).
-        for attempt in range(8):
-            time.sleep(6 if attempt == 0 else 5)
+        # Give it time to come up (the board's helper checks every 5 s), then launch the
+        # dashboard, retrying while the TV boots.
+        for attempt in range(16):
+            time.sleep(8 if attempt == 0 else 6)
             try:
                 self._ssap(ip, "ssap://system.launcher/launch", {"id": plan.get("app", "com.souvik.dashboard")})
                 self.last_wake = self._now().isoformat(timespec="minutes")
@@ -258,11 +270,13 @@ class TvWaker:
                 pkt = b"\xff" * 6 + raw * 16
                 for _ in range(3):
                     for port in (9, 7):
-                        s.sendto(pkt, (ip, port))   # straight to the TV
-                        try:
-                            s.sendto(pkt, ("255.255.255.255", port))
-                        except OSError:
-                            pass
+                        # Straight to the TV; fails when the TV is in deep sleep and no longer
+                        # answers ARP, which is what the board's broadcast is for.
+                        for dest in (ip, "255.255.255.255"):
+                            try:
+                                s.sendto(pkt, (dest, port))
+                            except OSError:
+                                pass
                 time.sleep(0.1)
         finally:
             s.close()

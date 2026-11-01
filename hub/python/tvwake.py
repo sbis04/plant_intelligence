@@ -34,6 +34,13 @@ MANIFEST_PATH = os.path.join(os.path.dirname(__file__), "lg_registration.json")
 def _request_path():
     from config import CONFIG_DIR
     return os.path.join(CONFIG_DIR, "tv-wake.json")
+
+
+def _found_ip_path():
+    """Where the board's helper writes the TV's current address (found by its MAC). The router
+    can hand the TV a new address when it wakes from deep sleep."""
+    from config import CONFIG_DIR
+    return os.path.join(CONFIG_DIR, "tv-ip.json")
 CHECK_EVERY_S = 15
 
 
@@ -230,9 +237,18 @@ class TvWaker:
         self._magic(ip, macs)
         self._log("SYSTEM", "TV: wake signal sent")
         # Give it time to come up (the board's helper checks every 5 s), then launch the
-        # dashboard, retrying while the TV boots.
-        for attempt in range(16):
+        # dashboard, retrying while the TV boots. If the TV came back on a new address, the
+        # board's helper finds it by MAC and leaves it in tv-ip.json.
+        asked_at = time.time()
+        for attempt in range(20):
             time.sleep(8 if attempt == 0 else 6)
+            found = self._found_ip(asked_at)
+            if found and found != ip:
+                self._log("SYSTEM", f"TV: it's now at {found}")
+                ip = found
+                plan["ip"] = found
+                self._config.tv_wake_plan = plan
+                self._config.save()
             try:
                 self._ssap(ip, "ssap://system.launcher/launch", {"id": plan.get("app", "com.souvik.dashboard")})
                 self.last_wake = self._now().isoformat(timespec="minutes")
@@ -243,6 +259,15 @@ class TvWaker:
                 self.last_error = str(e)
         self._log("SYSTEM", f"TV: could not open the dashboard ({self.last_error})", is_error=True)
         return False
+
+    @staticmethod
+    def _found_ip(since: float):
+        try:
+            with open(_found_ip_path()) as f:
+                d = json.load(f)
+            return d.get("ip") if d.get("at", 0) >= since - 5 else None
+        except (OSError, ValueError):
+            return None
 
     def pair(self) -> bool:
         """Register with the TV (shows its allow prompt the first time)."""

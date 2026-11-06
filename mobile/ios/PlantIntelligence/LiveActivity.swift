@@ -36,6 +36,62 @@ enum LiveActivityManager {
     Activity<WateringAttributes>.activities.first { $0.id == id }
   }
 
+  /// Every card currently on screen, newest first.
+  ///
+  /// Plural on purpose. Two paths raise these cards and they can both fire
+  /// for one watering, so anything that assumes a single card is wrong the
+  /// moment a remote start and a local start land together.
+  private nonisolated static var liveCards: [Activity<WateringAttributes>] {
+    Activity<WateringAttributes>.activities
+      .filter { $0.activityState == .active }
+      .sorted { startedAt($0) > startedAt($1) }
+  }
+
+  private nonisolated static func startedAt(
+    _ activity: Activity<WateringAttributes>
+  ) -> Double {
+    let state = activity.content.state
+    return state.endsAtEpoch - Double(state.totalSeconds)
+  }
+
+  /// A card raised in the last few seconds may belong to a watering our
+  /// status poll has not caught up with yet. Retiring it would shoot down
+  /// the card we were just asked to show.
+  private nonisolated static func isTooFresh(
+    _ activity: Activity<WateringAttributes>
+  ) -> Bool {
+    let state = activity.content.state
+    return !state.finished
+      && Date().timeIntervalSince1970 - startedAt(activity) < 25
+  }
+
+  private static func retire(_ id: String) {
+    push(
+      state: .init(
+        endsAtEpoch: Date().timeIntervalSince1970, totalSeconds: 0,
+        trigger: "", finished: true, note: ""),
+      to: id, ending: true)
+  }
+
+  /// Collapse duplicates down to one card.
+  ///
+  /// Called while watering is in progress, because the two starts can race:
+  /// the hub's push-to-start card may not be in `activities` yet when the
+  /// local start checks, so the check alone cannot prevent a second card —
+  /// it can only be cleaned up once both exist.
+  static func reconcile(client: HubClient?) {
+    let cards = liveCards
+    guard cards.count > 1, let keep = cards.first else { return }
+    if currentID != keep.id {
+      currentID = keep.id
+      observeUpdateToken(id: keep.id, with: client)
+    }
+    for extra in cards.dropFirst() {
+      NSLog("[LiveActivity] retiring duplicate \(extra.id)")
+      retire(extra.id)
+    }
+  }
+
   /// Hand the hub a push-to-start token so it can raise the card unprompted.
   static func registerPushToStart(with client: HubClient?) {
     startTokenTask?.cancel()
@@ -65,8 +121,17 @@ enum LiveActivityManager {
       finished: false,
       note: note)
 
-    if let id = currentID, find(id) != nil {
-      push(state: state, to: id, ending: false)
+    // Adopt whatever card is already on screen, whoever raised it. This
+    // used to match only an id this launch remembered, so a card the hub
+    // pushed was invisible to it and a second one was requested — two
+    // cards for one watering, and only one of them with a push token the
+    // hub could use to end it.
+    let cards = liveCards
+    if let keep = cards.first(where: { $0.id == currentID }) ?? cards.first {
+      currentID = keep.id
+      observeUpdateToken(id: keep.id, with: client)
+      push(state: state, to: keep.id, ending: false)
+      for extra in cards where extra.id != keep.id { retire(extra.id) }
       return
     }
     let place = location.split(separator: ",", maxSplits: 1).first?
@@ -109,33 +174,23 @@ enum LiveActivityManager {
   }
 
   static func end() {
-    // Adopt an orphan (left by a crash or a hub-pushed start) so it can be
-    // retired too, not just cards this launch created.
-    let orphan = Activity<WateringAttributes>.activities.first {
-      $0.activityState == .active
+    // Every card, not just the one we remember. Ending a single card while
+    // a duplicate stayed up is exactly how a card "never clears".
+    var cards = liveCards
+    if let newest = cards.first, isTooFresh(newest) {
+      // The hub pushed this a beat ago and our poll has not caught up.
+      // Leave it — but anything older is still a duplicate worth clearing.
+      cards.removeFirst()
+      for card in cards { retire(card.id) }
+      return
     }
-    // A card the hub just pushed can arrive a beat before the status poll
-    // catches up to "watering". Leave anything very fresh alone, or we'd
-    // shoot down the card we were asked to show.
-    if let orphan {
-      let state = orphan.content.state
-      let startedAt = state.endsAtEpoch - Double(state.totalSeconds)
-      if !state.finished, Date().timeIntervalSince1970 - startedAt < 25 {
-        return
-      }
+    guard !cards.isEmpty || currentID != nil else { return }
+    if let id = currentID, !cards.contains(where: { $0.id == id }), find(id) != nil {
+      retire(id)   // remembered but no longer reported active; end it anyway
     }
-    let id = currentID ?? orphan?.id
-    guard let id else { return }
     currentID = nil
     tokenTask?.cancel()
-    push(
-      state: .init(
-        endsAtEpoch: Date().timeIntervalSince1970,
-        totalSeconds: 0,
-        trigger: "",
-        finished: true,
-        note: ""),
-      to: id, ending: true)
+    for card in cards { retire(card.id) }
   }
 
   private static func push(

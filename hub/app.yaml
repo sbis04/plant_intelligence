@@ -6,4 +6,3 @@ bricks:
   - arduino:web_ui
   - arduino:weather_forecast
   - arduino:dbstorage_tsstore
-  - arduino:llm

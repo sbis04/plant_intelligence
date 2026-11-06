@@ -54,12 +54,15 @@ PERSONA = (
 class Assistant:
     def __init__(self, ctx):
         self.ctx = ctx
+        # The on-device model is off unless config.local_llm says otherwise
+        # (and app.yaml lists the arduino:llm brick, which runs it): without
+        # it the chat answers from the cloud only.
         self.llm = LargeLanguageModel(
             model=MODEL,
             system_prompt="",      # deliberate: Gemma's template rejects system turns
             temperature=0.3,
             max_tokens=280,
-        )
+        ) if ctx.config.local_llm else None
         # None until a question has actually been answered. Starting this at
         # "local" made the dashboard badge read "offline fallback" on every
         # fresh boot, reporting a cloud failure that had never happened.
@@ -217,6 +220,11 @@ class Assistant:
         "the hub's API key, and the on-device model isn't responding. "
         "Everything else on the hub is unaffected: watering, sensors and the "
         "schedule are all still running.")
+
+    LOCAL_OFF = (
+        "I can't reach the cloud model right now, and the on-device model is "
+        "switched off. Everything else on the hub is unaffected: watering, "
+        "sensors and the schedule are all still running.")
 
     def _local_chat(self, composed: str):
         """Run one on-device generation, or give up at the deadline."""
@@ -406,6 +414,10 @@ class Assistant:
                 except Exception:
                     pass
 
+        if self.llm is None:
+            self._finish_turn(thread_id, question_stored, self.LOCAL_OFF, attachment_ref)
+            yield self.LOCAL_OFF
+            return
         self.last_backend = "local"
         self._extend_turn(self.TURN_BUDGET_LOCAL_S)
         self._fresh_turn()
@@ -453,6 +465,8 @@ class Assistant:
                         " answering on-device", is_error=True)
                 except Exception:
                     pass
+        if self.llm is None:
+            return self.LOCAL_OFF
         self.last_backend = "local"
         self._extend_turn(self.TURN_BUDGET_LOCAL_S)
         self._fresh_turn()

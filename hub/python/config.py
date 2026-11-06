@@ -135,6 +135,9 @@ class Config:
     # key lives only in hub/data/config.json on the board (gitignored).
     cloud_llm_api_key: str = ""
     cloud_llm_model: str = "gemini-flash-latest"   # evergreen alias, never stale
+    # The on-device fallback model (llama.cpp). Off: it also needs the arduino:llm brick
+    # in app.yaml, which is left out so its runner doesn't start.
+    local_llm: bool = False
 
     # --- push notifications (APNs, direct — no Firebase) ---------------------
     # The .p8 key contents and its ids; set via POST /api/push/config or the

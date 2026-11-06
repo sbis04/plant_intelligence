@@ -73,6 +73,18 @@ struct HubClient: Sendable {
         try await post("/api/stop", as: SimpleResponse.self)
     }
 
+    /// The emergency lever: asks the host-side watchdog to restart the whole
+    /// hub app. Refused by the hub while a watering is running.
+    func restart() async throws -> SimpleResponse {
+        try await post("/api/restart", as: SimpleResponse.self)
+    }
+
+    /// "auto" (soil, forecast and camera decide) or "fixed" (the daily slots,
+    /// nothing else consulted).
+    func setSchedule(mode: String) async throws -> SimpleResponse {
+        try await post("/api/schedule", query: ["mode": mode], as: SimpleResponse.self)
+    }
+
     func setLocation(place: String) async throws -> SimpleResponse {
         try await post("/api/location", query: ["place": place], as: SimpleResponse.self)
     }

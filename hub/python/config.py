@@ -76,6 +76,16 @@ class Config:
     vision_may_skip: bool = True
     vision_max_wet_hours: float = 30.0
 
+    # --- schedule mode ------------------------------------------------------------
+    # "auto"  the adaptive engine: soil, weather and camera decide when and
+    #         how long, falling back to fixed slots only if the probe is gone
+    # "fixed" the fixed daily slots below, flat base_duration_s, and nothing
+    #         else consulted — not soil, not the forecast, not the camera.
+    #         The manual override while away, or while the sensors are not
+    #         trusted. Flip back with POST /api/schedule?mode=auto; no code
+    #         changes and nothing else to restore.
+    schedule_mode: str = "auto"
+
     # --- fixed schedule (used while there is no soil probe) ---------------------
     # Without a moisture reading the adaptive cadence is extrapolating from
     # weather alone, which is a guess dressed up as a decision. Until the

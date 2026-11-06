@@ -239,7 +239,9 @@ struct LogEntry: Codable, Identifiable, Hashable {
 struct HistoryResponse: Codable { var history: [WateringEvent] }
 struct LogsResponse: Codable { var logs: [LogEntry] }
 struct ChatResponse: Codable { var reply: String?; var error: String? }
-struct SimpleResponse: Codable { var accepted: Bool?; var error: String?; var name: String? }
+struct SimpleResponse: Codable {
+    var accepted: Bool?; var error: String?; var name: String?; var message: String?
+}
 
 struct ChatMessage: Identifiable, Equatable {
     enum Role { case user, assistant }

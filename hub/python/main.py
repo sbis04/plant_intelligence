@@ -34,7 +34,7 @@ from arduino.app_bricks.dbstorage_tsstore import TimeSeriesStore
 import api
 import location
 from cloud import FirestoreSync, NullSync
-from config import Config
+from config import CONFIG_DIR, Config
 from decision import compute_plan
 from hardware import Hardware
 from store import Store
@@ -199,6 +199,29 @@ class AppContext:
             log=self.store.log)
         self.cloud.start()
 
+    # The host-side watchdog looks for this once a minute. It lives in the
+    # data directory because that is the one path shared with the host.
+    RESTART_FLAG = os.path.join(CONFIG_DIR, "restart.requested")
+
+    def request_restart(self, who: str) -> tuple:
+        """Leave a note for the watchdog to restart the whole app.
+
+        Deliberately not os._exit(): that would only restart this process,
+        and the failures worth an emergency restart — a one-way MCU bridge,
+        a wedged brick — have all needed the full arduino-app-cli restart
+        that reflashes the sketch. The watchdog owns that; we just ask.
+        """
+        if self.watering_in_flight():
+            return False, "not while watering — stop it first, then restart"
+        try:
+            with open(self.RESTART_FLAG, "w") as f:
+                f.write(f"{datetime.now(timezone.utc).isoformat()} {who}\n")
+        except OSError as e:
+            return False, f"could not leave the restart request: {e}"
+        self.store.log("SYSTEM", f"Restart requested {who}; the watchdog will"
+                                 " restart the hub within a minute", is_error=True)
+        return True, "restarting — the hub will be back in about two minutes"
+
     def handle_remote_command(self, action: str, cmd: dict) -> tuple:
         """Execute one command that arrived through Firestore.
 
@@ -231,6 +254,23 @@ class AppContext:
                 return False, f"the MCU did not accept the command ({err})"
             self.store.log("OVERRIDE", "Watering stopped remotely")
             return True, "watering stopped"
+
+        if action == "restart":
+            return self.request_restart("remotely from the app")
+
+        if action in ("schedule_auto", "schedule_fixed"):
+            mode = "fixed" if action == "schedule_fixed" else "auto"
+            self.config.schedule_mode = mode
+            self.config.save()
+            self.store.log("SYSTEM",
+                           "Schedule switched remotely to fixed slots at "
+                           + ", ".join(self.config.fixed_times)
+                           if mode == "fixed" else
+                           "Schedule switched remotely back to adaptive")
+            self.recompute_plan()
+            self.cloud.push_state()
+            return True, ("fixed schedule: " + " and ".join(self.config.fixed_times)
+                          if mode == "fixed" else "adaptive schedule")
 
         if action == "refresh":
             # A pull-to-refresh from far away: recompute and re-mirror so the
@@ -572,17 +612,24 @@ def main():
     api.register(ui, ctx)
 
     ctx.store.log("SYSTEM", "Plant Intelligence hub started")
-    # The watchdog restarts us from outside the container, so it leaves a
-    # note behind rather than trying to write to the database itself.
-    _flag = os.path.expanduser("~/.mcu-watchdog-restarted")
-    if os.path.exists(_flag):
-        try:
-            os.remove(_flag)
-        except OSError:
-            pass
-        ctx.store.log("SYSTEM",
-                      "Restarted automatically: the MCU had stopped accepting "
-                      "commands", is_error=True)
+    # The watchdog restarts us from outside the container and leaves a note
+    # saying why. The note has to be in the data directory — the one path
+    # shared with the host — or it is written to a home directory this
+    # process never sees, which is why earlier restarts came back up silent.
+    for flag, reason in (
+        (os.path.join(CONFIG_DIR, ".restarted-mcu-down"),
+         "Restarted automatically: the MCU had stopped accepting commands"),
+        (os.path.join(CONFIG_DIR, ".restarted-requested"),
+         "Restarted on request from the app"),
+        (os.path.join(CONFIG_DIR, ".restarted-unreachable"),
+         "Restarted automatically: the hub had stopped answering"),
+    ):
+        if os.path.exists(flag):
+            try:
+                os.remove(flag)
+            except OSError:
+                pass
+            ctx.store.log("SYSTEM", reason, is_error=True)
     gone = ctx.store.push_token_prune()
     if gone:
         ctx.store.log("SYSTEM", f"Forgot {gone} phone token(s) that stopped checking in")

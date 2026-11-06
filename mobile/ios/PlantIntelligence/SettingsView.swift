@@ -4,6 +4,12 @@ struct SettingsView: View {
     @Environment(AppState.self) private var app
     @State private var address = ""
     @State private var testResult: String?
+    @State private var scheduleMode = "adaptive"
+    @State private var scheduleBusy = false
+    @State private var scheduleResult: String?
+    @State private var confirmRestart = false
+    @State private var restartBusy = false
+    @State private var restartResult: String?
     @State private var place = ""
     @State private var locationResult: String?
     @State private var apiKey = ""
@@ -54,6 +60,81 @@ struct SettingsView: View {
                                         testResult.hasSuffix("✓") ? Theme.accent : Theme.err)
                             }
                         }
+                    }
+
+                    PanelCard(title: "Watering schedule") {
+                        Picker("Schedule", selection: $scheduleMode) {
+                            Text("Adaptive").tag("adaptive")
+                            Text("Fixed · 7 AM & 5 PM").tag("fixed")
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(scheduleBusy || !app.isConnected)
+                        .onChange(of: scheduleMode) { _, mode in
+                            guard mode != app.scheduleMode else { return }
+                            Haptics.impact(.light)
+                            scheduleBusy = true
+                            Task {
+                                let error = await app.setScheduleMode(mode)
+                                scheduleBusy = false
+                                if let error {
+                                    scheduleResult = error
+                                    scheduleMode = app.scheduleMode
+                                    Haptics.notification(.error)
+                                } else {
+                                    scheduleResult = nil
+                                    Haptics.notification(.success)
+                                }
+                            }
+                        }
+                        .onAppear { scheduleMode = app.scheduleMode }
+                        .onChange(of: app.scheduleMode) { _, mode in
+                            if !scheduleBusy { scheduleMode = mode }
+                        }
+                        if let scheduleResult {
+                            Text(scheduleResult)
+                                .font(.caption)
+                                .foregroundStyle(Theme.err)
+                        }
+                        Text(scheduleMode == "fixed"
+                             ? "Waters for 5 minutes at 7 AM and 5 PM every day. Soil moisture, the forecast and the camera are not consulted."
+                             : "Soil moisture, the forecast and the camera decide when and how long to water.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textMuted)
+                    }
+
+                    PanelCard(title: "Hub") {
+                        Button(role: .destructive) {
+                            confirmRestart = true
+                        } label: {
+                            Label(restartBusy ? "Restarting…" : "Restart hub",
+                                  systemImage: "arrow.clockwise.circle")
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(restartBusy || !app.isConnected)
+                        .confirmationDialog(
+                            "Restart the hub?", isPresented: $confirmRestart,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Restart", role: .destructive) {
+                                restartBusy = true
+                                Task {
+                                    let result = await app.restartHub()
+                                    restartBusy = false
+                                    restartResult = result.message
+                                    Haptics.notification(result.accepted ? .success : .error)
+                                }
+                            }
+                        } message: {
+                            Text("The hub will be offline for about two minutes. Watering in progress is never interrupted — the hub refuses while the pump is running.")
+                        }
+                        if let restartResult {
+                            Text(restartResult)
+                                .font(.caption)
+                                .foregroundStyle(Theme.textMuted)
+                        }
+                        Text("For when something is stuck. Restarts the whole hub app, including the microcontroller firmware, the same way the automatic watchdog does.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textMuted)
                     }
 
                     PanelCard(title: "Location") {

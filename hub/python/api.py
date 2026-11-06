@@ -136,6 +136,38 @@ def register(ui, ctx):
         ctx.store.log("OVERRIDE", "Manual stop requested via API")
         return {"accepted": True}
 
+    def schedule(mode: str = ""):
+        """GET reports the mode; POST ?mode=auto|fixed switches it."""
+        if mode:
+            if mode not in ("auto", "fixed"):
+                return {"error": "mode must be auto or fixed"}
+            ctx.config.schedule_mode = mode
+            ctx.config.save()
+            ctx.store.log("SYSTEM",
+                          "Schedule switched to fixed slots at "
+                          + ", ".join(ctx.config.fixed_times)
+                          + f" ({ctx.config.base_duration_s // 60} min);"
+                          " soil, forecast and camera are not consulted"
+                          if mode == "fixed" else
+                          "Schedule switched back to adaptive")
+            ctx.recompute_plan()
+        return {"mode": ctx.config.schedule_mode,
+                "fixed_times": ctx.config.fixed_times,
+                "duration_s": ctx.config.base_duration_s}
+
+    def restart():
+        """Ask for a full app restart — the emergency lever.
+
+        The app runs inside a container and cannot restart itself with
+        arduino-app-cli, so this leaves a flag in the data directory, which
+        is bind-mounted from the host, and the host-side watchdog (cron,
+        once a minute) does the restart. That is the same path that clears a
+        wedged MCU bridge, and it works as long as the watchdog is alive,
+        which it is even when this process is not.
+        """
+        ok, message = ctx.request_restart("via API")
+        return {"accepted": ok, "message": message}
+
     def set_location(latitude: Optional[float] = None,
                      longitude: Optional[float] = None,
                      place: Optional[str] = None,
@@ -541,6 +573,9 @@ def register(ui, ctx):
     ui.expose_api("POST", "/api/push/test", push_test)
     ui.expose_api("POST", "/api/water", water)
     ui.expose_api("POST", "/api/stop", stop)
+    ui.expose_api("GET", "/api/schedule", schedule)
+    ui.expose_api("POST", "/api/schedule", schedule)
+    ui.expose_api("POST", "/api/restart", restart)
     def _resolve_thread(thread_id: int) -> int:
         """Existing thread id, or a fresh thread when 0/stale."""
         if thread_id and ctx.store.thread_exists(thread_id):

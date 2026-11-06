@@ -179,6 +179,48 @@ final class AppState {
 
     /// Drop the stored credentials — Settings offers this so a device can be
     /// un-paired without reinstalling.
+    // MARK: - Hub controls
+
+    /// "adaptive" or "fixed", as the hub reports it in the current plan.
+    var scheduleMode: String { status?.plan?.mode ?? "adaptive" }
+
+    /// Switch between the adaptive engine and fixed daily slots, over
+    /// whichever path is up. Nil on success, otherwise what went wrong.
+    func setScheduleMode(_ mode: String) async -> String? {
+        do {
+            if link == .remote, let cloud {
+                _ = try await cloud.setSchedule(mode: mode)
+            } else if let client {
+                let response = try await client.setSchedule(mode: mode)
+                if let error = response.error { return error }
+            } else {
+                return "The hub isn't reachable."
+            }
+            await refreshStatus()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// The emergency lever. Asks the host-side watchdog to restart the whole
+    /// hub app; the hub refuses while a watering is running. It is gone for
+    /// about two minutes afterwards, so the badge will read offline before
+    /// it reads live again.
+    func restartHub() async -> (accepted: Bool, message: String) {
+        do {
+            if link == .remote, let cloud {
+                return (true, try await cloud.restart())
+            }
+            guard let client else { return (false, "The hub isn't reachable.") }
+            let response = try await client.restart()
+            let message = response.message ?? response.error ?? ""
+            return (response.accepted ?? false, message)
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
     func forgetRemoteAccess() {
         GoogleRemoteAuth.signOut()
         RemoteAccess.forget()
@@ -214,6 +256,12 @@ final class AppState {
                 note: "",
                 location: response.location?.name ?? "Garden",
                 client: link == .live ? client : nil)
+        } else if watering {
+            // A remote start and a local start can race, and the check in
+            // start() cannot see a hub-pushed card that has not landed yet.
+            // Sweeping on every poll while watering is what actually keeps
+            // it to one card.
+            LiveActivityManager.reconcile(client: link == .live ? client : nil)
         } else if !watering, LiveActivityManager.hasActive {
             // Covers the ordinary end, and also clears a card orphaned by a
             // crash or a hub-pushed start we never saw finish.

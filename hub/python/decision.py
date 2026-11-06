@@ -288,6 +288,20 @@ def compute_plan(
     fixed = (soil_pct is None and not soil_expected
              and cfg.fixed_when_no_soil and bool(cfg.fixed_times))
 
+    # The manual override. Fixed slots, flat dose, and every sensor's opinion
+    # set aside — including the forecast's right to skip a slot for rain,
+    # which the no-probe fallback keeps. When someone has asked for "just
+    # water at 7 and 5", a slot that silently does not fire is the failure.
+    if cfg.schedule_mode == "fixed" and cfg.fixed_times:
+        why.soil = ("Fixed schedule mode: soil moisture, forecast and camera "
+                    "are not being consulted")
+        duration_s = int(max(cfg.min_duration_s,
+                             min(cfg.max_duration_s, cfg.base_duration_s)))
+        if last_watering_end is not None and now.tzinfo is not None:
+            last_watering_end = last_watering_end.astimezone(now.tzinfo)
+        return _plan_fixed(cfg, now, duration_s, rain_expected=False,
+                           last_watering_end=last_watering_end, why=why)
+
     # ---- weather shapes the cadence and the dose (adaptive mode only) --------
     # Everything the forecast has to say lands on ONE line. Three separate
     # bullets all meaning "it might rain" was most of the old confusion.

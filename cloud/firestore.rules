@@ -111,9 +111,15 @@ service cloud.firestore {
     // the hub is what moves them to done, rejected or expired. Nobody may
     // delete one, so the result stays readable by the sender.
     match /commands/{document} {
-      allow create: if appUser()
+      // Any allowed account may file one, the hub's own included. Limiting
+      // this to app accounts was cleaner, but it would have broken every
+      // install still signed in as the hub the moment these rules went
+      // live — and the hub account is on the hub, so nothing is gained by
+      // keeping it out of a queue it already fully controls.
+      allow create: if allowed()
                     && request.resource.data.status == "pending"
-                    && request.resource.data.action in ["water", "stop", "refresh"]
+                    && request.resource.data.action in ["water", "stop", "refresh", "restart",
+                                                        "schedule_auto", "schedule_fixed"]
                     && request.resource.data.requested_at is timestamp
                     && request.resource.data.source in ["ios", "watchos"]
                     && (!request.resource.data.keys().hasAny(["duration_s"])

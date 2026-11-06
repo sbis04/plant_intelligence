@@ -242,6 +242,17 @@ actor CloudClient {
         try await send(action: "stop")
     }
 
+    /// The hub marks this done the moment it has filed the request, then
+    /// goes away for a couple of minutes while the watchdog restarts it.
+    func restart() async throws -> String {
+        try await send(action: "restart", waitFor: 20)
+    }
+
+    func setSchedule(mode: String) async throws -> String {
+        try await send(action: mode == "fixed" ? "schedule_fixed" : "schedule_auto",
+                       waitFor: 20)
+    }
+
     /// Ask the hub to recompute and re-publish, then read the fresh document.
     func refreshRemote() async throws -> StatusResponse {
         _ = try? await send(action: "refresh", waitFor: 15)

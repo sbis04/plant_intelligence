@@ -17,6 +17,7 @@ together. No system role, no server-side memory — nothing to get poisoned.
 import base64
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -68,9 +69,50 @@ class Assistant:
         # changes without notice — and with it, which generation knobs it
         # accepts. Dropped permanently the first time one is rejected.
         self._thinking_ok = True
-        # The brick allows one generation at a time; concurrent requests
-        # (dashboard + phone) queue here instead of erroring.
-        self._lock = threading.Lock()
+        # The brick allows one generation at a time, so turns are serialised.
+        #
+        # This used to be a threading.Lock held across the generator's yields,
+        # which is a trap: a phone that walks out of Wi-Fi mid-answer leaves
+        # the generator suspended and never closed, so the lock is never
+        # released and every later question blocks on acquire() forever — no
+        # error, no timeout, just a "thinking..." bubble that never resolves.
+        #
+        # A deadline cannot leak. An abandoned turn expires on its own, and
+        # the guard below is only ever held for the microseconds it takes to
+        # read or write the timestamp, never across I/O.
+        self._turn_guard = threading.Lock()
+        self._turn_until = 0.0
+
+    # ---- turn arbitration ---------------------------------------------------
+    # Generous enough that a real answer is never cut off, short enough that
+    # a wedged turn cannot hold the assistant hostage. The on-device model
+    # runs at roughly a token a second on the A53, so it gets far longer.
+    TURN_BUDGET_CLOUD_S = 90.0
+    TURN_BUDGET_LOCAL_S = 300.0
+
+    BUSY_REPLY = ("I'm still working on the previous question — "
+                  "give me a moment and ask again.")
+
+    def _begin_turn(self, budget_s: float) -> bool:
+        """Claim the assistant for one turn. False if another is genuinely
+        still running; an expired claim is treated as abandoned."""
+        with self._turn_guard:
+            now = time.monotonic()
+            if now < self._turn_until:
+                return False
+            self._turn_until = now + budget_s
+            self.busy = True
+            return True
+
+    def _extend_turn(self, budget_s: float):
+        """Falling back to the on-device model needs a much longer budget."""
+        with self._turn_guard:
+            self._turn_until = time.monotonic() + budget_s
+
+    def _end_turn(self):
+        with self._turn_guard:
+            self._turn_until = 0.0
+            self.busy = False
 
     # ---- context ----------------------------------------------------------
     def _live_data(self) -> dict:
@@ -157,6 +199,49 @@ class Assistant:
             self.llm.clear_memory()
         except Exception:
             pass
+
+    # ---- on-device model ----------------------------------------------------
+    # The brick loads the model lazily on the first question, and that load
+    # can hang: the request then never returns and the phone shows a
+    # "thinking" bubble forever. Nothing in the brick's API takes a timeout,
+    # so the call runs on its own thread and we stop waiting on a deadline.
+    #
+    # The abandoned thread is left to finish or die on its own. That is
+    # deliberate: there is no safe way to kill it, and it holds nothing
+    # anyone else needs — turn arbitration is a deadline, not a lock, so a
+    # stuck generation can no longer take the assistant down with it.
+    LOCAL_DEADLINE_S = 180.0
+
+    LOCAL_UNAVAILABLE = (
+        "I can't reach either model right now — the cloud model is refusing "
+        "the hub's API key, and the on-device model isn't responding. "
+        "Everything else on the hub is unaffected: watering, sensors and the "
+        "schedule are all still running.")
+
+    def _local_chat(self, composed: str):
+        """Run one on-device generation, or give up at the deadline."""
+        result = {}
+
+        def run():
+            try:
+                result["reply"] = self.llm.chat(composed)
+            except Exception as e:
+                result["error"] = e
+
+        worker = threading.Thread(target=run, name="llm-chat", daemon=True)
+        worker.start()
+        worker.join(self.LOCAL_DEADLINE_S)
+        if worker.is_alive():
+            try:
+                self.ctx.store.log(
+                    "SYSTEM", "On-device model did not respond within "
+                    f"{int(self.LOCAL_DEADLINE_S)}s", is_error=True)
+            except Exception:
+                pass
+            return None
+        if "error" in result:
+            raise result["error"]
+        return result.get("reply")
 
     # ---- cloud (Gemini Flash) ----------------------------------------------
     def _cloud_request(self, path: str, composed: str,
@@ -273,12 +358,17 @@ class Assistant:
         on-device model when the cloud is unreachable. The exchange is
         persisted to the thread, including a partial reply if the client
         disconnects mid-stream."""
-        self.busy = True
+        if not self._begin_turn(self.TURN_BUDGET_CLOUD_S):
+            yield self.BUSY_REPLY
+            return
         try:
             yield from self._ask_stream(question, thread_id,
                                         attachment, attachment_ref)
         finally:
-            self.busy = False
+            # Runs on normal completion, on an exception, and on the
+            # GeneratorExit raised when a disconnected client's generator is
+            # closed. Should even that be missed, the deadline still expires.
+            self._end_turn()
 
     def _ask_stream(self, question: str, thread_id: int,
                     attachment: bytes = None, attachment_ref: str = ""):
@@ -290,81 +380,84 @@ class Assistant:
         else:
             question_stored = question
         composed = self._compose(question, thread_id)
-        with self._lock:
-            if self.ctx.config.cloud_llm_api_key:
-                # Optimistically mark the attempt so clients polling status
-                # mid-generation see which backend is actually working.
-                self.last_backend = "cloud"
-                collected = []
-                try:
-                    for text in self._cloud_stream(composed, attachment):
-                        collected.append(text)
-                        yield text
-                    self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
-                    return
-                except GeneratorExit:
-                    self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
-                    raise
-                except Exception as e:
-                    if collected:   # died mid-reply: don't restart locally
-                        self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
-                        yield "\n[cloud connection lost]"
-                        return
-                    # never produced a byte — offline or bad key: go local
-                    try:
-                        self.ctx.store.log(
-                            "SYSTEM", f"Cloud model unreachable ({type(e).__name__}), answering on-device")
-                    except Exception:
-                        pass
-
-            self.last_backend = "local"
-            self._fresh_turn()
+        if self.ctx.config.cloud_llm_api_key:
+            # Optimistically mark the attempt so clients polling status
+            # mid-generation see which backend is actually working.
+            self.last_backend = "cloud"
             collected = []
             try:
-                for chunk in self.llm.chat_stream(composed):
-                    text = chunk if isinstance(chunk, str) else str(chunk)
+                for text in self._cloud_stream(composed, attachment):
                     collected.append(text)
                     yield text
+                self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
+                return
             except GeneratorExit:
-                # Client went away mid-reply — stop generation so the brick
-                # doesn't stay "in progress" forever.
-                try:
-                    self.llm.stop_stream()
-                except Exception:
-                    pass
                 self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
                 raise
+            except Exception as e:
+                if collected:   # died mid-reply: don't restart locally
+                    self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
+                    yield "\n[cloud connection lost]"
+                    return
+                # never produced a byte — offline or bad key: go local
+                try:
+                    self.ctx.store.log(
+                        "SYSTEM", f"Cloud model unreachable ({type(e).__name__}), answering on-device")
+                except Exception:
+                    pass
+
+        self.last_backend = "local"
+        self._extend_turn(self.TURN_BUDGET_LOCAL_S)
+        self._fresh_turn()
+        collected = []
+        try:
+            for chunk in self.llm.chat_stream(composed):
+                text = chunk if isinstance(chunk, str) else str(chunk)
+                collected.append(text)
+                yield text
+        except GeneratorExit:
+            # Client went away mid-reply — stop generation so the brick
+            # doesn't stay "in progress" forever.
+            try:
+                self.llm.stop_stream()
+            except Exception:
+                pass
             self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
+            raise
+        self._finish_turn(thread_id, question_stored, "".join(collected), attachment_ref)
 
     def ask(self, question: str, thread_id: int) -> str:
-        self.busy = True
+        if not self._begin_turn(self.TURN_BUDGET_CLOUD_S):
+            return self.BUSY_REPLY
         try:
             return self._ask(question, thread_id)
         finally:
-            self.busy = False
+            self._end_turn()
 
     def _ask(self, question: str, thread_id: int) -> str:
         composed = self._compose(question, thread_id)
-        with self._lock:
-            if self.ctx.config.cloud_llm_api_key:
+        if self.ctx.config.cloud_llm_api_key:
+            try:
+                reply = self._cloud_ask(composed)
+                self.last_backend = "cloud"
+                self._finish_turn(thread_id, question, reply)
+                return reply
+            except Exception as e:
+                # Say why. Swallowing this made a broken cloud path look
+                # exactly like being offline — every answer quietly came
+                # from the 1B model at 100 s a question.
                 try:
-                    reply = self._cloud_ask(composed)
-                    self.last_backend = "cloud"
-                    self._finish_turn(thread_id, question, reply)
-                    return reply
-                except Exception as e:
-                    # Say why. Swallowing this made a broken cloud path look
-                    # exactly like being offline — every answer quietly came
-                    # from the 1B model at 100 s a question.
-                    try:
-                        self.ctx.store.log(
-                            "SYSTEM",
-                            f"Cloud model unreachable ({type(e).__name__}: {e}),"
-                            " answering on-device", is_error=True)
-                    except Exception:
-                        pass
-            self.last_backend = "local"
-            self._fresh_turn()
-            reply = self.llm.chat(composed)
-            self._finish_turn(thread_id, question, reply)
-            return reply
+                    self.ctx.store.log(
+                        "SYSTEM",
+                        f"Cloud model unreachable ({type(e).__name__}: {e}),"
+                        " answering on-device", is_error=True)
+                except Exception:
+                    pass
+        self.last_backend = "local"
+        self._extend_turn(self.TURN_BUDGET_LOCAL_S)
+        self._fresh_turn()
+        reply = self._local_chat(composed)
+        if reply is None:
+            return self.LOCAL_UNAVAILABLE
+        self._finish_turn(thread_id, question, reply)
+        return reply

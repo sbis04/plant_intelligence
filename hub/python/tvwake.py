@@ -229,19 +229,19 @@ class TvWaker:
         if not ip or not macs:
             self.last_error = "no wake plan from the TV yet"
             return False
-        try:
-            with open(_request_path(), "w") as f:
-                json.dump({"ip": ip, "macs": macs, "at": time.time()}, f)
-        except OSError as e:
-            self._log("SYSTEM", f"TV: could not ask the board to wake it ({e})", is_error=True)
-        self._magic(ip, macs)
+        self._signal(ip, macs)
         self._log("SYSTEM", "TV: wake signal sent")
         # Give it time to come up (the board's helper checks every 5 s), then launch the
         # dashboard, retrying while the TV boots. If the TV came back on a new address, the
         # board's helper finds it by MAC and leaves it in tv-ip.json.
+        # Now and then the TV misses it (5 Nov: no answer at 7:00, woke at once when asked again
+        # five minutes later), so it's sent again after about 50 s and 100 s without an answer.
         asked_at = time.time()
-        for attempt in range(20):
+        for attempt in range(30):
             time.sleep(8 if attempt == 0 else 6)
+            if attempt in (8, 16):
+                self._signal(ip, macs)
+                self._log("SYSTEM", "TV: no answer yet, wake signal sent again")
             found = self._found_ip(asked_at)
             if found and found != ip:
                 self._log("SYSTEM", f"TV: it's now at {found}")
@@ -282,6 +282,15 @@ class TvWaker:
         except Exception as e:
             self.last_error = str(e)
             return False
+
+    def _signal(self, ip: str, macs: list):
+        """Asks the board to broadcast the Wake-on-LAN packet (the container's own can't reach the LAN)."""
+        try:
+            with open(_request_path(), "w") as f:
+                json.dump({"ip": ip, "macs": macs, "at": time.time()}, f)
+        except OSError as e:
+            self._log("SYSTEM", f"TV: could not ask the board to wake it ({e})", is_error=True)
+        self._magic(ip, macs)
 
     @staticmethod
     def _magic(ip: str, macs: list):
